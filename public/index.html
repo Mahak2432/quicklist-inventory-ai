@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>QuickListInventoryAI · Snap, list, sell everywhere</title>
+  <meta name="description" content="Snap a product photo. QuickListInventoryAI writes the listing and keeps stock in sync across Amazon, Flipkart, Meesho and Shopify.">
+  <meta name="theme-color" content="#171a2b">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <a class="skip" href="#view">Skip to content</a>
+
+  <div class="app" id="app">
+    <aside class="rail" aria-label="Sidebar">
+      <a class="brand" href="#/snap">
+        <svg class="brand-mark" viewBox="0 0 30 30" aria-hidden="true"><path d="M2 14V3h11l14 14-11 11z" fill="#2e3f8f"/><circle cx="8" cy="9" r="2.4" fill="#f3f3ef"/></svg>
+        QuickListInventoryAI
+      </a>
+      <nav class="nav" aria-label="Main">
+        <a href="#/snap" data-route="snap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>Snap</a>
+        <a href="#/stock" data-route="stock"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M3 7l9-4 9 4-9 4-9-4z"/><path d="M3 7v10l9 4 9-4V7"/></svg>Stock</a>
+        <a href="#/listings" data-route="listings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 4h7l9 9-7 7-9-9z"/><circle cx="8" cy="8" r="1.2"/></svg>Listings</a>
+        <a href="#/orders" data-route="orders"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg>Orders</a>
+        <a href="#/chat" data-route="chat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/></svg>WhatsApp</a>
+      </nav>
+      <div class="rail-foot">
+        <a href="#/settings" data-route="settings" class="nav-settings"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/></svg> Settings</a>
+        <small class="muted" id="shop-name"></small>
+      </div>
+    </aside>
+
+    <header class="topbar">
+      <a class="brand" href="#/snap">
+        <svg class="brand-mark" viewBox="0 0 30 30" aria-hidden="true"><path d="M2 14V3h11l14 14-11 11z" fill="#2e3f8f"/><circle cx="8" cy="9" r="2.4" fill="#f3f3ef"/></svg>
+        QuickListInventoryAI
+      </a>
+      <a href="#/settings" class="btn btn-quiet btn-small" style="color:#f3f3ef;box-shadow:inset 0 0 0 1.5px #4b5068">Settings</a>
+    </header>
+
+    <main id="view" class="view" tabindex="-1"></main>
+
+    <nav class="tabbar" aria-label="Main mobile">
+      <a href="#/snap" data-route="snap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>Snap</a>
+      <a href="#/stock" data-route="stock"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M3 7l9-4 9 4-9 4-9-4z"/><path d="M3 7v10l9 4 9-4V7"/></svg>Stock</a>
+      <a href="#/listings" data-route="listings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 4h7l9 9-7 7-9-9z"/><circle cx="8" cy="8" r="1.2"/></svg>Listings</a>
+      <a href="#/orders" data-route="orders"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg>Orders</a>
+      <a href="#/chat" data-route="chat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/></svg>Chat</a>
+    </nav>
+  </div>
+
+  <div id="toasts" class="toasts" aria-live="polite" aria-atomic="false"></div>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

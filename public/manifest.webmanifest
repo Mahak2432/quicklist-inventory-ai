@@ -1,0 +1,12 @@
+{
+  "name": "QuickListInventoryAI",
+  "short_name": "QuickList AI",
+  "description": "Snap a product photo. QuickListInventoryAI writes the listing and keeps stock in sync.",
+  "start_url": "/#/snap",
+  "display": "standalone",
+  "background_color": "#f3f3ef",
+  "theme_color": "#171a2b",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}
