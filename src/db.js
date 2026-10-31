@@ -121,6 +121,15 @@ CREATE TABLE IF NOT EXISTS connections (
   PRIMARY KEY (tenant_id, platform)
 );
 
+-- Owner logins. One login per shop, matched by email.
+CREATE TABLE IF NOT EXISTS users (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL REFERENCES tenants(id),
+  email TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS demo_pushes (
   id TEXT PRIMARY KEY,
   tenant_id TEXT NOT NULL,

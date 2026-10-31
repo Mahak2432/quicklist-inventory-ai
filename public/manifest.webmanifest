@@ -4,8 +4,8 @@
   "description": "Snap a product photo. QuickListInventoryAI writes the listing and keeps stock in sync.",
   "start_url": "/#/snap",
   "display": "standalone",
-  "background_color": "#f3f3ef",
-  "theme_color": "#171a2b",
+  "background_color": "#F3F4F5",
+  "theme_color": "#17191C",
   "icons": [
     { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
   ]

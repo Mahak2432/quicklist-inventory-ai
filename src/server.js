@@ -8,7 +8,7 @@ import { makeAdapters } from './channels.js';
 import { CONNECTORS } from './connectors.js';
 import { listConnections, listDemoPushes, removeConnection, retestConnection, saveConnection } from './connections.js';
 import { vaultReady } from './vault.js';
-import { bearerFrom, createTenant, getTenant, issueToken, tenantForToken } from './auth.js';
+import { bearerFrom, createAccount, createTenant, getTenant, issueToken, login, revokeToken, tenantForToken } from './auth.js';
 import {
   adjustStock,
   drainOutbox,
@@ -46,6 +46,9 @@ const STATUS_FOR_CODE = {
   CONFLICT: 409,
   NEEDS_INFO: 422,
   VAULT_OFF: 503,
+  EMAIL_TAKEN: 409,
+  BAD_LOGIN: 401,
+  BAD_INPUT: 400,
 };
 
 class HttpError extends Error {
@@ -75,6 +78,8 @@ async function route(db, req, res) {
   if (pathname === '/webhooks/whatsapp') return whatsappWebhook(db, req, res, url);
   const publicImage = pathname.match(/^\/m\/([\w-]+)\/(original|studio)$/);
   if (req.method === 'GET' && publicImage) return publicImageRoute(db, res, publicImage[1], publicImage[2], url);
+  if (req.method === 'POST' && pathname === '/api/auth/signup') return accountSignup(db, req, res);
+  if (req.method === 'POST' && pathname === '/api/auth/login') return accountLogin(db, req, res);
   if (req.method === 'POST' && pathname === '/api/tenants') return signup(db, req, res);
 
   if (req.method === 'GET' && !pathname.startsWith('/api') && !pathname.startsWith('/mcp')) {
@@ -146,6 +151,11 @@ async function apiRoute(db, tenantId, req, res, url) {
     }
   }
   if (method === 'GET' && pathname === '/api/demo/pushes') return json(res, 200, listDemoPushes(db, tenantId));
+
+  if (method === 'POST' && pathname === '/api/auth/logout') {
+    revokeToken(db, bearerFrom(req));
+    return json(res, 200, { ok: true });
+  }
 
   if (method === 'POST' && pathname === '/api/tokens') {
     const body = await readJson(req);
@@ -245,6 +255,37 @@ function signupAllowed(req) {
   recent.push(now);
   signupHits.set(ip, recent);
   return true;
+}
+
+// Separate buckets for sign-up and log-in, so repeated failed log-ins can't block new shops.
+const rateBuckets = { signup: new Map(), login: new Map() };
+function rateAllowed(bucket, req, limit) {
+  const forwarded = String(req.headers['x-forwarded-for'] ?? '').split(',').pop().trim();
+  const ip = forwarded || req.socket.remoteAddress || 'unknown';
+  const hits = rateBuckets[bucket];
+  const now = Date.now();
+  const recent = (hits.get(ip) ?? []).filter((t) => now - t < 3_600_000);
+  if (recent.length >= limit) {
+    hits.set(ip, recent);
+    return false;
+  }
+  recent.push(now);
+  hits.set(ip, recent);
+  return true;
+}
+
+async function accountSignup(db, req, res) {
+  if (!rateAllowed('signup', req, Number(process.env.SIGNUP_PER_HOUR || 30))) {
+    throw new HttpError(429, 'Too many sign-ups from this address. Try again later.');
+  }
+  return json(res, 201, await createAccount(db, await readJson(req)));
+}
+
+async function accountLogin(db, req, res) {
+  if (!rateAllowed('login', req, Number(process.env.LOGIN_PER_HOUR || 60))) {
+    throw new HttpError(429, 'Too many sign-in attempts from this address. Try again later.');
+  }
+  return json(res, 200, await login(db, await readJson(req)));
 }
 
 async function signup(db, req, res) {

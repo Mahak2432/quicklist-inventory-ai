@@ -182,18 +182,48 @@ function startCard() {
       <li><strong>Check</strong> the listing the app wrote, then add sizes, stock and prices.</li>
       <li><strong>Sell</strong> anywhere. Each order updates stock on every other channel.</li>
     </ol>
-    <label class="field"><span>Shop name</span>
-      <input class="input" id="onboard-name" maxlength="100" placeholder="for example Meera Kurtis" autocomplete="organization">
-    </label>
+    <div class="auth-tabs" role="tablist" aria-label="Account">
+      <button type="button" class="chip" role="tab" data-action="auth-tab" data-tab="signup" aria-pressed="${state.authTab !== 'login'}">Create account</button>
+      <button type="button" class="chip" role="tab" data-action="auth-tab" data-tab="login" aria-pressed="${state.authTab === 'login'}">Log in</button>
+    </div>
+    ${state.authTab === 'login' ? loginFields() : signupFields()}
     <div class="row">
-      <button type="button" class="btn btn-primary" data-action="onboard-create">Open my shop</button>
-      <button type="button" class="btn btn-quiet" data-action="onboard-paste">I already have a token</button>
+      <button type="button" class="btn btn-quiet" data-action="onboard-paste">I have a token from another device</button>
     </div>
     <div class="demo-box">
       <p><strong>New here?</strong> The demo shop loads three sample products, a Demo marketplace, a sample Amazon order and a WhatsApp chat, so you can watch stock move in about a minute.</p>
       <button type="button" class="btn btn-indigo" data-action="onboard-demo" id="demo-btn">Try the demo shop</button>
       <p class="muted" id="seed-status" role="status" aria-live="polite"></p>
     </div>`;
+}
+
+function signupFields() {
+  return `
+    <div class="auth-fields">
+      <label class="field"><span>Shop name</span>
+        <input class="input" id="auth-shop" maxlength="100" placeholder="for example Meera Kurtis" autocomplete="organization">
+      </label>
+      <label class="field"><span>Email</span>
+        <input class="input" id="auth-email" type="email" autocomplete="email" placeholder="you@example.com">
+      </label>
+      <label class="field"><span>Password</span>
+        <input class="input" id="auth-password" type="password" minlength="8" autocomplete="new-password" placeholder="At least 8 characters">
+      </label>
+    </div>
+    <div class="row"><button type="button" class="btn btn-primary" data-action="auth-signup">Create my account</button></div>`;
+}
+
+function loginFields() {
+  return `
+    <div class="auth-fields">
+      <label class="field"><span>Email</span>
+        <input class="input" id="auth-email" type="email" autocomplete="email" placeholder="you@example.com">
+      </label>
+      <label class="field"><span>Password</span>
+        <input class="input" id="auth-password" type="password" autocomplete="current-password">
+      </label>
+    </div>
+    <div class="row"><button type="button" class="btn btn-primary" data-action="auth-login">Log in</button></div>`;
 }
 
 function tokenCard(token) {
@@ -389,8 +419,8 @@ function emptyHTML() {
     ${stepsHTML(1)}
     <section class="dropzone" id="dropzone" aria-labelledby="drop-h">
       <svg class="dropzone-art" viewBox="0 0 84 84" aria-hidden="true">
-        <path d="M10 42V10h30l34 34-30 30z" fill="#2e3f8f"/>
-        <circle cx="24" cy="24" r="6" fill="#e6e9f6"/>
+        <path d="M10 42V10h30l34 34-30 30z" fill="#FF4B32"/>
+        <circle cx="24" cy="24" r="6" fill="#17191C"/>
       </svg>
       <h2 id="drop-h">Drop a product photo here</h2>
       <p class="muted">JPEG, PNG or WebP, up to 12 MB. A plain background in daylight works best.</p>
@@ -1427,7 +1457,8 @@ const actions = {
     toast('New token created. Copy it now, because it is shown once.');
     return render();
   },
-  'sign-out': () => {
+  'sign-out': async () => {
+    await api('/api/auth/logout', { method: 'POST' }).catch(() => {});
     store.del(PHONE_KEY);
     setToken(null);
     Object.assign(state, { shop: null, newToken: null, snap: { phase: 'empty' } });
@@ -1462,12 +1493,28 @@ const actions = {
     toast('Disconnected. Its keys are deleted from our server.');
     return render();
   },
-  'onboard-create': async () => {
-    const name = $('#onboard-name').value.trim();
-    if (!name) throw new Error('Enter your shop name first.');
-    const r = await api('/api/tenants', { method: 'POST', body: { name }, auth: false });
-    setToken(r.token);
-    renderOnboard('token', r.token);
+  'auth-tab': (el) => {
+    state.authTab = el.dataset.tab;
+    return renderOnboard('start');
+  },
+  'auth-signup': async () => {
+    const res = await api('/api/auth/signup', {
+      method: 'POST',
+      body: { shop_name: $('#auth-shop').value, email: $('#auth-email').value, password: $('#auth-password').value },
+      auth: false,
+    });
+    setToken(res.token);
+    toast(`Welcome, ${res.tenant.name}. Your shop is ready.`);
+    return enterApp();
+  },
+  'auth-login': async () => {
+    const res = await api('/api/auth/login', {
+      method: 'POST',
+      body: { email: $('#auth-email').value, password: $('#auth-password').value },
+      auth: false,
+    });
+    setToken(res.token);
+    return enterApp();
   },
   'onboard-demo': () => seedDemoShop(),
   'onboard-continue': () => enterApp(),
@@ -1524,9 +1571,13 @@ document.addEventListener('keydown', (e) => {
     'new-term': 'add-term',
     'custom-size': 'add-size',
     'quick-text': 'read-text',
-    'onboard-name': 'onboard-create',
     'onboard-token': 'onboard-use-token',
   };
+  if (e.target.id === 'auth-password') {
+    e.preventDefault();
+    run(state.authTab === 'login' ? 'auth-login' : 'auth-signup', e.target);
+    return;
+  }
   const name = map[e.target.id];
   if (!name) return;
   e.preventDefault();
