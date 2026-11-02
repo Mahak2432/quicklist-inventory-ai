@@ -167,34 +167,60 @@ function renderOnboard(step = 'start', token = '') {
   if (step === 'token') card = tokenCard(token);
   else if (step === 'paste') card = pasteCard();
   else card = startCard();
-  root.innerHTML = `<section class="onboard-card" aria-labelledby="onboard-h">${card}</section>`;
+  root.innerHTML = `${brandPanelHTML()}<section class="onboard-card" aria-labelledby="onboard-h">${card}</section>`;
   root.querySelector('input')?.focus();
 }
 
-function startCard() {
+// The left panel on the sign-up and log-in page. It says what the app does before asking for anything.
+function brandPanelHTML() {
   return `
-    <div class="stack" style="gap:10px">
-      <h1 id="onboard-h">Turn one photo into a live listing.</h1>
-      <p>QuickListInventoryAI writes the listing, asks only for sizes, stock and prices, then keeps one stock count across every channel you sell on.</p>
+    <aside class="onboard-brand" aria-label="About QuickListInventoryAI">
+      <div class="brand-lockup">
+        <svg viewBox="0 0 30 30" aria-hidden="true"><path d="M2 14V3h11l14 14-11 11z" fill="#FF4B32"/><circle cx="8" cy="9" r="2.4" fill="#17191C"/></svg>
+        QuickListInventoryAI
+      </div>
+      <div class="stack" style="gap:18px">
+        <h2>Snap a photo. Get a listing. Sell everywhere.</h2>
+        <ul class="onboard-points">
+          <li>Writes the title, bullets and description from your photo.</li>
+          <li>Crops and brightens rough shots, makes white-background photos, and can put a product on a mannequin from a short note.</li>
+          <li>Keeps one stock count across Shopify, Amazon, Flipkart and Meesho.</li>
+        </ul>
+      </div>
+      <p class="brand-foot">Built for small Indian sellers.</p>
+    </aside>`;
+}
+
+function startCard() {
+  const login = state.authTab === 'login';
+  return `
+    <div class="stack" style="gap:8px">
+      <p class="eyebrow">${login ? 'Welcome back' : 'Get started'}</p>
+      <h1 id="onboard-h">${login ? 'Log in to your shop' : 'Open your shop'}</h1>
+      <p class="muted">${login ? 'Use the email and password you signed up with.' : 'Takes under a minute. You can add products and connect stores afterwards.'}</p>
     </div>
-    <ol class="how-steps" aria-label="How it works">
-      <li><strong>Snap</strong> a product photo.</li>
-      <li><strong>Check</strong> the listing the app wrote, then add sizes, stock and prices.</li>
-      <li><strong>Sell</strong> anywhere. Each order updates stock on every other channel.</li>
-    </ol>
     <div class="auth-tabs" role="tablist" aria-label="Account">
-      <button type="button" class="chip" role="tab" data-action="auth-tab" data-tab="signup" aria-pressed="${state.authTab !== 'login'}">Create account</button>
-      <button type="button" class="chip" role="tab" data-action="auth-tab" data-tab="login" aria-pressed="${state.authTab === 'login'}">Log in</button>
+      <button type="button" class="chip" role="tab" data-action="auth-tab" data-tab="signup" aria-selected="${!login}" aria-pressed="${!login}">Create account</button>
+      <button type="button" class="chip" role="tab" data-action="auth-tab" data-tab="login" aria-selected="${login}" aria-pressed="${login}">Log in</button>
     </div>
-    ${state.authTab === 'login' ? loginFields() : signupFields()}
-    <div class="row">
-      <button type="button" class="btn btn-quiet" data-action="onboard-paste">I have a token from another device</button>
-    </div>
+    ${login ? loginFields() : signupFields()}
     <div class="demo-box">
-      <p><strong>New here?</strong> The demo shop loads three sample products, a Demo marketplace, a sample Amazon order and a WhatsApp chat, so you can watch stock move in about a minute.</p>
+      <p><strong>Just looking?</strong> The demo shop loads sample products, a Demo marketplace, a sample order and a WhatsApp chat, so you can watch stock move in about a minute.</p>
       <button type="button" class="btn btn-indigo" data-action="onboard-demo" id="demo-btn">Try the demo shop</button>
       <p class="muted" id="seed-status" role="status" aria-live="polite"></p>
-    </div>`;
+    </div>
+    <p class="fine-print"><button type="button" class="link-btn" data-action="onboard-paste">I have a token from another device</button></p>`;
+}
+
+// Password field with a show and hide button. The input keeps the id the sign-in actions read.
+function passwordField(autocomplete, placeholder) {
+  return `
+    <label class="field"><span>Password</span>
+      <span class="pw">
+        <input class="input" id="auth-password" type="password" minlength="8" autocomplete="${autocomplete}" placeholder="${placeholder}">
+        <button type="button" class="pw-toggle" data-action="toggle-password" aria-label="Show password">Show</button>
+      </span>
+    </label>`;
 }
 
 function signupFields() {
@@ -206,11 +232,9 @@ function signupFields() {
       <label class="field"><span>Email</span>
         <input class="input" id="auth-email" type="email" autocomplete="email" placeholder="you@example.com">
       </label>
-      <label class="field"><span>Password</span>
-        <input class="input" id="auth-password" type="password" minlength="8" autocomplete="new-password" placeholder="At least 8 characters">
-      </label>
+      ${passwordField('new-password', 'At least 8 characters')}
     </div>
-    <div class="row"><button type="button" class="btn btn-primary" data-action="auth-signup">Create my account</button></div>`;
+    <button type="button" class="btn btn-primary btn-block" data-action="auth-signup">Create my account</button>`;
 }
 
 function loginFields() {
@@ -219,11 +243,9 @@ function loginFields() {
       <label class="field"><span>Email</span>
         <input class="input" id="auth-email" type="email" autocomplete="email" placeholder="you@example.com">
       </label>
-      <label class="field"><span>Password</span>
-        <input class="input" id="auth-password" type="password" autocomplete="current-password">
-      </label>
+      ${passwordField('current-password', '')}
     </div>
-    <div class="row"><button type="button" class="btn btn-primary" data-action="auth-login">Log in</button></div>`;
+    <button type="button" class="btn btn-primary btn-block" data-action="auth-login">Log in</button>`;
 }
 
 function tokenCard(token) {
@@ -423,9 +445,9 @@ function emptyHTML() {
         <circle cx="24" cy="24" r="6" fill="#17191C"/>
       </svg>
       <h2 id="drop-h">Drop a product photo here</h2>
-      <p class="muted">JPEG, PNG or WebP, up to 12 MB. A plain background in daylight works best.</p>
-      <label class="field hint-field"><span>What is it? (optional)</span>
-        <input class="input" id="hint" maxlength="120" placeholder="for example: navy running shoes">
+      <p class="muted">Up to 8 photos, JPEG, PNG or WebP, 12 MB each. Rough shots are fine: you can crop, rotate and brighten them before publishing.</p>
+      <label class="field hint-field"><span>What is it, or what should we make? (optional)</span>
+        <input class="input" id="hint" maxlength="120" placeholder="for example: navy running shoes, or put it on a mannequin">
       </label>
       <div class="dropzone-actions">
         <button type="button" class="btn btn-primary" data-action="pick-camera">Take a photo</button>
@@ -433,7 +455,7 @@ function emptyHTML() {
       </div>
     </section>
     <input type="file" id="camera" accept="image/*" capture="environment" hidden>
-    <input type="file" id="file" accept="image/jpeg,image/png,image/webp" hidden>`;
+    <input type="file" id="file" accept="image/jpeg,image/png,image/webp" multiple hidden>`;
 }
 
 function analyzingHTML(s) {
@@ -457,22 +479,13 @@ function reviewHTML(s) {
   const needsSizes = Boolean(SIZE_PRESETS[l.category]);
   const missing = missingFromEdits(e, l.category);
   const busy = s.busy;
-  const photos = v.draft.images.studio
-    ? compareHTML(v.id)
-    : `<div class="photo-frame"><img data-photo="/api/media/${esc(v.id)}?variant=original" alt="Your product photo"></div>`;
+  const photos = photoStripHTML(v, busy);
 
   return `
     ${stepsHTML(missing.length ? 3 : 4)}
     <div class="review" id="review">
-      <section class="stack" aria-label="Photo">
+      <section class="stack photo-column" aria-label="Product photos">
         ${photos}
-        <div class="mode-switch" role="group" aria-label="Photo on the listing">
-          <button type="button" data-action="mode" data-mode="ORIGINAL" aria-pressed="${s.mode !== 'STUDIO'}" ${busy ? 'disabled' : ''}>Use my photo</button>
-          <button type="button" data-action="mode" data-mode="STUDIO" aria-pressed="${s.mode === 'STUDIO'}" ${busy ? 'disabled' : ''}>
-            ${busy === 'studio' ? '<span class="spinner" aria-hidden="true"></span> Making studio photo' : 'Studio white background'}
-          </button>
-        </div>
-        <p class="mode-note" role="status">${esc(modeNote(v.draft.images, s.mode, busy))}</p>
       </section>
       <div class="stack">
         ${listingCardHTML(l)}
@@ -516,30 +529,46 @@ function stepsHTML(current) {
   }).join('')}</ol>`;
 }
 
-function compareHTML(id) {
+// One card per photo. Each card chooses how its photo goes on the listing and can be edited or removed.
+function photoStripHTML(v, busy) {
+  const photos = v.draft.photos;
+  const disabled = busy ? 'disabled' : '';
+  const cards = photos.map((p, i) => {
+    const kind = p.mode === 'STUDIO' && p.enhanced ? 'enhanced' : 'original';
+    const label = i === 0 ? 'Main photo' : `Photo ${i + 1}`;
+    const from = p.source === 'generated' ? 'Made from your note' : p.source === 'edited' ? 'Edited' : '';
+    return `
+      <figure class="shot">
+        <div class="shot-frame"><img data-photo="/api/media/${esc(v.id)}?variant=${i}-${kind}" alt="${esc(label)}"></div>
+        <figcaption><strong>${label}</strong>${from ? `<span>${esc(from)}</span>` : ''}</figcaption>
+        <div class="shot-mode" role="group" aria-label="${label}: how it goes on the listing">
+          <button type="button" data-action="photo-mode" data-index="${i}" data-mode="ORIGINAL" aria-pressed="${p.mode !== 'STUDIO'}" ${disabled}>As is</button>
+          <button type="button" data-action="photo-mode" data-index="${i}" data-mode="STUDIO" aria-pressed="${p.mode === 'STUDIO'}" ${disabled}>White background</button>
+        </div>
+        <div class="shot-tools">
+          <button type="button" class="btn btn-quiet btn-small" data-action="photo-edit" data-index="${i}" ${disabled}>Edit</button>
+          <button type="button" class="btn btn-quiet btn-small" data-action="photo-remove" data-index="${i}" ${disabled}>Remove</button>
+        </div>
+      </figure>`;
+  }).join('');
+  const addButton = photos.length < MAX_PHOTOS_UI
+    ? `<button type="button" class="shot shot-add" data-action="photo-add" ${disabled}><span aria-hidden="true">+</span>Add photo</button>`
+    : '';
+  const note = busy === 'studio'
+    ? '<p class="mode-note" role="status"><span class="spinner" aria-hidden="true"></span> Making the white-background photo. This takes a few seconds.</p>'
+    : `<p class="mode-note" role="status">${esc(photoNote(photos))}</p>`;
   return `
-    <div class="compare" style="--pos:50%">
-      <img class="studio" data-photo="/api/media/${esc(id)}?variant=studio" alt="Studio white version">
-      <img data-photo="/api/media/${esc(id)}?variant=original" alt="Your original photo">
-      <div class="compare-handle" aria-hidden="true"></div>
-      <input type="range" min="0" max="100" value="50" data-compare aria-label="Drag to compare studio and original photo">
-    </div>
-    <div class="compare-labels"><span>Studio white</span><span>Your photo</span></div>`;
+    <section class="photo-strip" aria-label="Photos on the listing">${cards}${addButton}</section>
+    ${note}
+    <input type="file" id="file" accept="image/jpeg,image/png,image/webp" multiple hidden>`;
 }
 
-function modeNote(images, mode, busy) {
-  if (busy === 'studio') return 'Making the white-background version. This takes a few seconds.';
-  if (mode !== 'STUDIO') {
-    return images.studio
-      ? 'Your photo goes on the listing as it is. Drag the handle above to compare.'
-      : 'Your photo goes on the listing as it is. Studio white is one tap away.';
-  }
-  const notes = {
-    'muse-image': 'Background replaced with Muse Image.',
-    mask: 'Background cleared because it was plain. Check the edges in the comparison.',
-    canvas: 'Centred on white. The background stayed because it is busy. A Meta key replaces it fully.',
-  };
-  return notes[images.studio_method] || 'Studio white version ready.';
+function photoNote(photos) {
+  if (!photos.length) return 'Add a photo to list it on your marketplaces.';
+  const methods = photos.filter((p) => p.mode === 'STUDIO' && p.enhanced).map((p) => p.method);
+  if (methods.includes('mask')) return 'Background cleared because it was plain. Check the edges before you publish.';
+  if (methods.includes('canvas')) return 'Centred on white. The background stayed because it was busy. A Meta key replaces it fully.';
+  return 'Each photo goes on the listing the way you set it. Use Edit to crop, rotate or brighten a rough shot.';
 }
 
 function listingCardHTML(l) {
@@ -776,23 +805,40 @@ async function patchDraft(body) {
   return api(`/api/listings/drafts/${state.snap.view.id}`, { method: 'PATCH', body });
 }
 
-async function startAnalysis(file) {
-  if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) return toast('Use a JPEG, PNG or WebP photo.', 'bad');
-  if (file.size > MAX_PHOTO) return toast('That photo is over 12 MB. Try a smaller one.', 'bad');
+const PHOTO_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+const MAX_PHOTOS_UI = 8;
+
+// Checks the photos the seller picked. Returns null, after a message, when one is not allowed.
+function pickedPhotos(files) {
+  const list = [...(files ?? [])];
+  if (!list.length) return null;
+  if (list.some((f) => !PHOTO_TYPES.includes(f.type))) {
+    toast('Use JPEG, PNG or WebP photos.', 'bad');
+    return null;
+  }
+  if (list.some((f) => f.size > MAX_PHOTO)) {
+    toast('One photo is over 12 MB. Try a smaller one.', 'bad');
+    return null;
+  }
+  return list;
+}
+
+// The first photo starts the draft and reads the listing. Any others are added to it.
+async function startAnalysis(files) {
+  const picked = pickedPhotos(files)?.slice(0, MAX_PHOTOS_UI);
+  if (!picked) return;
   const hint = $('#hint')?.value.trim() ?? '';
-  state.snap = { phase: 'analyzing', preview: URL.createObjectURL(file), hint };
+  state.snap = { phase: 'analyzing', preview: URL.createObjectURL(picked[0]), hint, count: picked.length };
   await render();
   try {
-    const view = await api(`/api/listings/drafts?hint=${encodeURIComponent(hint)}`, { method: 'POST', file });
-    state.snap = {
-      phase: 'review',
-      view,
-      mode: view.draft.images.mode,
-      edits: editsFrom(view.draft),
-      busy: null,
-    };
-    if (view.analysis_error) toast('The photo could not be read. Fill in the listing yourself.', 'bad');
-    else toast('Listing drafted. Check it, then add the details.');
+    const first = await api(`/api/listings/drafts?hint=${encodeURIComponent(hint)}`, { method: 'POST', file: picked[0] });
+    let view = first;
+    for (const file of picked.slice(1)) view = await api(`/api/listings/drafts/${first.id}/photos`, { method: 'POST', file });
+    state.snap = { phase: 'review', view, edits: editsFrom(view.draft), busy: null };
+    state.photos.clear();
+    if (first.analysis_error) toast('The photo could not be read. Fill in the listing yourself.', 'bad');
+    else if (first.note_photo_error) toast(`Could not make the new photo. ${first.note_photo_error}`, 'bad');
+    else toast(picked.length > 1 ? `Listing drafted from ${plural(picked.length, 'photo')}. Check it, then add the details.` : 'Listing drafted. Check it, then add the details.');
   } catch (err) {
     state.snap = { phase: 'empty' };
     toast(err.message, 'bad');
@@ -800,21 +846,193 @@ async function startAnalysis(file) {
   await render();
 }
 
-async function setImageMode(mode) {
+// Adds photos to the draft on screen.
+async function addPhotos(files) {
+  const list = pickedPhotos(files);
+  if (!list) return;
+  if (state.snap.view.draft.photos.length + list.length > MAX_PHOTOS_UI) {
+    toast(`A listing holds up to ${MAX_PHOTOS_UI} photos.`, 'bad');
+    return;
+  }
   captureEdits();
-  state.snap.busy = mode === 'STUDIO' ? 'studio' : 'mode';
+  state.snap.busy = 'photo';
   await render();
   try {
-    const view = await patchDraft({ image_mode: mode });
+    let view = state.snap.view;
+    for (const file of list) view = await api(`/api/listings/drafts/${view.id}/photos`, { method: 'POST', file });
     state.snap.view = view;
-    state.snap.mode = view.draft.images.mode;
-    if (mode === 'STUDIO') {
-      toast(view.draft.images.studio_method === 'muse-image' ? 'Studio photo made with Muse Image.' : 'Studio photo made on this device.');
-    }
+    state.photos.clear();
+    toast(`Added ${plural(list.length, 'photo')}.`);
+  } catch (err) {
+    toast(err.message, 'bad');
   } finally {
     state.snap.busy = null;
     await render();
   }
+}
+
+// Sets whether one photo goes on the listing as it is, or with a white background.
+async function setPhotoMode(index, mode) {
+  captureEdits();
+  state.snap.busy = mode === 'STUDIO' ? 'studio' : 'mode';
+  await render();
+  try {
+    const view = await patchDraft({ photo_mode: { index, mode } });
+    state.snap.view = view;
+    state.photos.clear();
+    if (mode === 'STUDIO') {
+      const method = view.draft.photos[index]?.method;
+      toast(method === 'muse-image' ? 'White background made with Muse Image.' : 'White background made on this device.');
+    }
+  } catch (err) {
+    toast(err.message, 'bad');
+  } finally {
+    state.snap.busy = null;
+    await render();
+  }
+}
+
+async function removePhotoAt(index) {
+  captureEdits();
+  state.snap.busy = 'photo';
+  await render();
+  try {
+    state.snap.view = await api(`/api/listings/drafts/${state.snap.view.id}/photos/${index}`, { method: 'DELETE' });
+    state.photos.clear();
+  } catch (err) {
+    toast(err.message, 'bad');
+  } finally {
+    state.snap.busy = null;
+    await render();
+  }
+}
+
+// ---------- Photo editor ----------
+// Edits happen in the browser. Saving sends the result back as the photo's new original.
+
+function loadImage(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('Could not open that photo.'));
+    img.src = src;
+  });
+}
+
+async function openEditor(index) {
+  captureEdits();
+  try {
+    const res = await fetch(`/api/media/${state.snap.view.id}?variant=${index}-original`, { headers: { Authorization: `Bearer ${state.token}` } });
+    if (!res.ok) throw new Error('Could not open that photo.');
+    const img = await loadImage(URL.createObjectURL(await res.blob()));
+    state.editor = { index, img, rotate: 0, crop: 'free', brightness: 0, contrast: 0 };
+    showEditor();
+  } catch (err) {
+    toast(err.message, 'bad');
+  }
+}
+
+function showEditor() {
+  let root = $('#editor');
+  if (!root) {
+    root = document.createElement('div');
+    root.id = 'editor';
+    root.className = 'editor';
+    document.body.append(root);
+  }
+  const e = state.editor;
+  const crops = [['free', 'Original'], ['square', 'Square'], ['portrait', '4:5']];
+  root.innerHTML = `
+    <div class="editor-card" role="dialog" aria-modal="true" aria-labelledby="editor-h">
+      <header class="row between">
+        <h2 id="editor-h">Edit photo ${e.index + 1}</h2>
+        <button type="button" class="btn btn-quiet btn-small" data-action="editor-close">Close</button>
+      </header>
+      <div class="editor-stage"><canvas id="editor-canvas" role="img" aria-label="Preview of the edited photo"></canvas></div>
+      <div class="editor-tools">
+        <div class="row" role="group" aria-label="Rotate">
+          <button type="button" class="btn btn-quiet btn-small" data-action="editor-rotate" data-by="-90">Rotate left</button>
+          <button type="button" class="btn btn-quiet btn-small" data-action="editor-rotate" data-by="90">Rotate right</button>
+        </div>
+        <div class="row" role="group" aria-label="Crop shape">
+          ${crops.map(([id, label]) => `<button type="button" class="chip" data-action="editor-crop" data-crop="${id}" aria-pressed="${e.crop === id}">${label}</button>`).join('')}
+        </div>
+        <label class="slider"><span>Brightness</span><input type="range" min="-40" max="40" value="${e.brightness}" data-editor="brightness"></label>
+        <label class="slider"><span>Contrast</span><input type="range" min="-40" max="40" value="${e.contrast}" data-editor="contrast"></label>
+      </div>
+      <footer class="row between">
+        <p class="muted">Saving replaces this photo. If it had a white background, that is made again.</p>
+        <button type="button" class="btn btn-primary" data-action="editor-save" id="editor-save">Save photo</button>
+      </footer>
+    </div>`;
+  drawEditor();
+}
+
+// Draws the photo with the chosen rotation, crop, brightness and contrast.
+function renderEdited(e, maxSide) {
+  const { img } = e;
+  const turned = e.rotate % 180 !== 0;
+  const w = turned ? img.naturalHeight : img.naturalWidth;
+  const h = turned ? img.naturalWidth : img.naturalHeight;
+  const ratio = { free: 0, square: 1, portrait: 0.8 }[e.crop];
+  let cw = w;
+  let ch = h;
+  if (ratio) {
+    if (w / h > ratio) cw = h * ratio;
+    else ch = w / ratio;
+  }
+  const scale = Math.min(1, maxSide / Math.max(cw, ch));
+  const out = document.createElement('canvas');
+  out.width = Math.round(cw * scale);
+  out.height = Math.round(ch * scale);
+  const ctx = out.getContext('2d');
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillRect(0, 0, out.width, out.height);
+  ctx.filter = `brightness(${100 + e.brightness * 2.5}%) contrast(${100 + e.contrast * 2.5}%)`;
+  ctx.translate(out.width / 2, out.height / 2);
+  ctx.rotate((e.rotate * Math.PI) / 180);
+  ctx.scale(scale, scale);
+  ctx.drawImage(img, -img.naturalWidth / 2, -img.naturalHeight / 2);
+  return out;
+}
+
+function drawEditor() {
+  const canvas = $('#editor-canvas');
+  if (!canvas || !state.editor) return;
+  const preview = renderEdited(state.editor, 900);
+  canvas.width = preview.width;
+  canvas.height = preview.height;
+  canvas.getContext('2d').drawImage(preview, 0, 0);
+}
+
+function updateEditorFromInput(input) {
+  if (!state.editor) return;
+  state.editor[input.dataset.editor] = Number(input.value);
+  drawEditor();
+}
+
+async function saveEditor() {
+  const e = state.editor;
+  if (!e) return;
+  const button = $('#editor-save');
+  if (button) button.disabled = true;
+  try {
+    const blob = await new Promise((resolve) => renderEdited(e, 2000).toBlob(resolve, 'image/jpeg', 0.92));
+    state.snap.view = await api(`/api/listings/drafts/${state.snap.view.id}/photos/${e.index}`, { method: 'PUT', file: blob });
+    state.photos.clear();
+    closeEditor();
+    toast('Photo saved.');
+  } catch (err) {
+    if (button) button.disabled = false;
+    toast(err.message, 'bad');
+  } finally {
+    await render();
+  }
+}
+
+function closeEditor() {
+  state.editor = null;
+  $('#editor')?.remove();
 }
 
 async function readTextDetails(text) {
@@ -839,7 +1057,7 @@ async function readTextDetails(text) {
 async function renderStock() {
   const products = await api('/api/products');
   state.stock.products = products.length;
-  state.stock.rows = products.flatMap((p) => p.variants.map((v) => ({ ...v, title: p.title, master: p.master_sku })));
+  state.stock.rows = products.flatMap((p) => p.variants.map((v) => ({ ...v, title: p.title, master: p.master_sku, image: p.media_urls[0] ?? '' })));
 
   if (!products.length) {
     return `
@@ -893,6 +1111,9 @@ function stockGridHTML() {
     const sku = esc(r.sku);
     return `
       <article class="tag sku-tag" data-state="${tone}">
+        ${r.image
+          ? `<img class="thumb" src="${esc(r.image)}" alt="${esc(r.title)}" loading="lazy">`
+          : `<div class="thumb thumb-empty" aria-hidden="true">${esc((r.title || '?').charAt(0))}</div>`}
         <div class="sku">${sku}</div>
         <div class="title">${esc(r.title)}</div>
         <div class="muted">${r.size ? `Size ${esc(r.size)}` : 'One size'} · ${inr(r.selling_price)}</div>
@@ -1334,7 +1555,27 @@ const actions = {
   'pick-camera': () => $('#camera').click(),
   'pick-file': () => $('#file').click(),
   'snap-again': () => { state.snap = { phase: 'empty' }; return render(); },
-  mode: (el) => setImageMode(el.dataset.mode),
+  'photo-mode': (el) => setPhotoMode(Number(el.dataset.index), el.dataset.mode),
+  'photo-edit': (el) => openEditor(Number(el.dataset.index)),
+  'photo-remove': (el) => removePhotoAt(Number(el.dataset.index)),
+  'photo-add': () => $('#file').click(),
+  'editor-close': () => closeEditor(),
+  'editor-rotate': (el) => {
+    state.editor.rotate = (state.editor.rotate + Number(el.dataset.by) + 360) % 360;
+    drawEditor();
+  },
+  'editor-crop': (el) => {
+    state.editor.crop = el.dataset.crop;
+    showEditor();
+  },
+  'editor-save': () => saveEditor(),
+  'toggle-password': (el) => {
+    const input = $('#auth-password');
+    const reveal = input.type === 'password';
+    input.type = reveal ? 'text' : 'password';
+    el.textContent = reveal ? 'Hide' : 'Show';
+    el.setAttribute('aria-label', reveal ? 'Hide password' : 'Show password');
+  },
   'toggle-size': () => {
     captureEdits();
     const d = state.snap.edits.details;
@@ -1596,9 +1837,11 @@ document.addEventListener('submit', (e) => {
 document.addEventListener('change', (e) => {
   const t = e.target;
   if (t.id === 'file' || t.id === 'camera') {
-    const f = t.files?.[0];
+    const files = [...(t.files ?? [])];
     t.value = '';
-    if (f) startAnalysis(f);
+    if (!files.length) return;
+    if (state.snap.phase === 'review') addPhotos(files);
+    else startAnalysis(files);
   } else if (t.id === 'chat-file') {
     const f = t.files?.[0];
     t.value = '';
@@ -1618,8 +1861,8 @@ document.addEventListener('change', (e) => {
 
 document.addEventListener('input', (e) => {
   const t = e.target;
-  if (t.matches('[data-compare]')) {
-    t.closest('.compare').style.setProperty('--pos', `${t.value}%`);
+  if (t.matches('[data-editor]')) {
+    updateEditorFromInput(t);
   } else if (t.matches('[data-price]')) {
     updateDiscount();
   } else if (t.id === 'stock-search') {
@@ -1644,8 +1887,8 @@ document.addEventListener('drop', (e) => {
   if (!zone) return;
   e.preventDefault();
   zone.classList.remove('is-over');
-  const f = e.dataTransfer?.files?.[0];
-  if (f) startAnalysis(f);
+  const files = e.dataTransfer?.files;
+  if (files?.length) startAnalysis(files);
 });
 
 window.addEventListener('hashchange', () => render());

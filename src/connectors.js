@@ -203,7 +203,7 @@ function escapeHtml(text) {
 }
 
 // The product body Shopify's Admin API expects. Each SKU becomes a variant, and sizes become the Size option.
-export function shopifyProductBody(product, imageUrl) {
+export function shopifyProductBody(product, imageUrls = []) {
   const attrs = product.attributes ?? {};
   const sized = product.variants.some((v) => v.size);
   const bullets = (attrs.bullets ?? []).map((b) => `<li>${escapeHtml(b)}</li>`).join('');
@@ -222,7 +222,7 @@ export function shopifyProductBody(product, imageUrl) {
         ...(sized ? { option1: v.size } : {}),
         inventory_management: 'shopify',
       })),
-      ...(imageUrl ? { images: [{ src: imageUrl }] } : {}),
+      ...(imageUrls.length ? { images: imageUrls.map((src) => ({ src })) } : {}),
     },
   };
 }

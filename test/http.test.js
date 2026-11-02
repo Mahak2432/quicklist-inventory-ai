@@ -56,7 +56,7 @@ test('a photo becomes a draft, the seller answers, and the product publishes wit
   });
   assert.equal(created.status, 201);
   const draft = await created.json();
-  assert.equal(draft.draft.images.mode, 'ORIGINAL');
+  assert.equal(draft.draft.photos[0].mode, 'ORIGINAL');
   assert.deepEqual(draft.missing, ['stock', 'mrp', 'selling_price']);
 
   const answered = await call(`/api/listings/drafts/${draft.id}`, {

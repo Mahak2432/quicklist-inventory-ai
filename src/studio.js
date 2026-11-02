@@ -6,6 +6,16 @@ const COLOUR_TOLERANCE = 60;
 const PLAIN_BORDER_SHARE = 0.9;
 const STUDIO_PROMPT = 'Place the product from this photo on a seamless pure white (#FFFFFF) studio background with a soft, natural shadow beneath it. Keep the product exactly as it is: same colours, shape, texture, printed text and details. Remove the table, floor and any other objects. Add no text, logos or props.';
 
+const NOTE_SUFFIX = 'Keep the product exactly as it is: same colours, shape, fabric, printed text and details. Add no text, logos or watermark.';
+
+// Makes a new photo of the product from the seller's note, such as "put on a mannequin".
+// Needs the Meta key, so the caller can show the reason when it is missing.
+export async function makeNotePhoto(image, note) {
+  if (!metaEnabled()) throw new Error('Making a new photo needs the Meta key on the server.');
+  const made = await editImage(image, `${note.trim()}. ${NOTE_SUFFIX}`);
+  return sharp(made.buffer).rotate().jpeg({ quality: 92 }).toBuffer();
+}
+
 // Returns a marketplace-style main image: square, white background, product centred.
 // `method` says how it was made, so the seller knows whether the background was
 // fully replaced ('muse-image') or only cleaned locally ('mask' or 'canvas').

@@ -19,7 +19,19 @@ import {
   mapChannel,
   upsertProduct,
 } from './inventory.js';
-import { createDraft, getDraft, mediaName, publicMedia, publishDraft, updateDraft } from './listing.js';
+import {
+  addPhoto,
+  createDraft,
+  getDraft,
+  mediaName,
+  publicMedia,
+  publishDraft,
+  removePhoto,
+  replacePhoto,
+  updateDraft,
+  wantsNotePhoto,
+} from './listing.js';
+import { makeNotePhoto } from './studio.js';
 import { buildCsv, exportWarnings, PLATFORMS } from './marketplaces.js';
 import { handleMcpRequest } from './mcp.js';
 import { analyzePhoto, metaEnabled } from './meta.js';
@@ -76,7 +88,7 @@ async function route(db, req, res) {
     return json(res, 200, { ok: true, meta_enabled: metaEnabled() });
   }
   if (pathname === '/webhooks/whatsapp') return whatsappWebhook(db, req, res, url);
-  const publicImage = pathname.match(/^\/m\/([\w-]+)\/(original|studio)$/);
+  const publicImage = pathname.match(/^\/m\/([\w-]+)\/([\w-]+)$/);
   if (req.method === 'GET' && publicImage) return publicImageRoute(db, res, publicImage[1], publicImage[2], url);
   if (req.method === 'POST' && pathname === '/api/auth/signup') return accountSignup(db, req, res);
   if (req.method === 'POST' && pathname === '/api/auth/login') return accountLogin(db, req, res);
@@ -177,6 +189,15 @@ async function apiRoute(db, tenantId, req, res, url) {
       const product = publishDraft(db, tenantId, id);
       return json(res, 201, { ...product, shopify: await listOnShopify(db, tenantId, product) });
     }
+  }
+  const photoRoute = pathname.match(/^\/api\/listings\/drafts\/([\w-]+)\/photos(?:\/(\d+))?$/);
+  if (photoRoute) {
+    const [, id, index] = photoRoute;
+    if (method === 'POST' && index === undefined) return json(res, 201, addPhoto(db, tenantId, id, await uploadedPhoto(req)));
+    if (method === 'PUT' && index !== undefined) {
+      return json(res, 200, await replacePhoto(db, tenantId, id, Number(index), await uploadedPhoto(req)));
+    }
+    if (method === 'DELETE' && index !== undefined) return json(res, 200, removePhoto(db, tenantId, id, Number(index)));
   }
   const media = pathname.match(/^\/api\/media\/([\w-]+)$/);
   if (method === 'GET' && media) {
@@ -299,26 +320,42 @@ async function signup(db, req, res) {
   return json(res, 201, createTenant(db, name));
 }
 
-async function createDraftRoute(db, tenantId, req, res, hint) {
-  const type = String(req.headers['content-type'] ?? '').split(';')[0].trim();
-  if (!ALLOWED_IMAGE_TYPES.includes(type)) {
-    throw new HttpError(415, `Send a JPEG, PNG or WebP photo (got ${type || 'no content type'})`);
+// Reads an uploaded photo from the request body and checks its type.
+async function uploadedPhoto(req) {
+  const mime = String(req.headers['content-type'] ?? '').split(';')[0].trim();
+  if (!ALLOWED_IMAGE_TYPES.includes(mime)) {
+    throw new HttpError(415, `Send a JPEG, PNG or WebP photo (got ${mime || 'no content type'})`);
   }
   const buffer = await readBody(req, MAX_IMAGE_BYTES);
   if (!buffer.length) throw new HttpError(400, 'Photo is empty');
+  return { buffer, mime };
+}
+
+async function createDraftRoute(db, tenantId, req, res, hint) {
+  const photo = await uploadedPhoto(req);
 
   // A failed vision call should not lose the photo. The seller can still
   // enter the details by hand.
   let analysis;
   let analysisError = null;
   try {
-    analysis = await analyzePhoto({ buffer, mime: type }, hint);
+    analysis = await analyzePhoto(photo, hint);
   } catch (err) {
     analysisError = err.message;
     analysis = { title: hint || 'Untitled product', category: 'GENERIC' };
   }
-  const view = createDraft(db, tenantId, analysis, storeImage(buffer, type));
-  return json(res, 201, { ...view, analysis_error: analysisError });
+  const view = createDraft(db, tenantId, analysis, storeImage(photo.buffer, photo.mime));
+
+  // A note such as "put on a mannequin" asks for a new picture. It becomes the
+  // main image, and the seller's own photo stays beside it.
+  if (!wantsNotePhoto(hint)) return json(res, 201, { ...view, analysis_error: analysisError, note_photo_error: null });
+  try {
+    const made = await makeNotePhoto(photo, hint);
+    const withNote = addPhoto(db, tenantId, view.id, { buffer: made, mime: 'image/jpeg', source: 'generated', front: true });
+    return json(res, 201, { ...withNote, analysis_error: analysisError, note_photo_error: null });
+  } catch (err) {
+    return json(res, 201, { ...view, analysis_error: analysisError, note_photo_error: err.message });
+  }
 }
 
 async function whatsappWebhook(db, req, res, url) {

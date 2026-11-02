@@ -51,7 +51,7 @@ test('a product becomes one Shopify product with a Size option and one variant p
       { sku: 'SHOE-1-UK7', size: 'UK7', mrp: 1999, selling_price: 1499, stock_qty: 3 },
       { sku: 'SHOE-1-UK8', size: 'UK8', mrp: 1499, selling_price: 1499, stock_qty: 0 },
     ],
-  }, 'https://shop.example.test/m/abc/original?sig=x');
+  }, ['https://shop.example.test/m/abc/0-original?sig=x', 'https://shop.example.test/m/abc/1-enhanced?sig=y']);
 
   assert.deepEqual(body.product.options, [{ name: 'Size' }]);
   assert.equal(body.product.variants.length, 2);
@@ -59,7 +59,10 @@ test('a product becomes one Shopify product with a Size option and one variant p
   assert.equal(body.product.variants[0].price, '1499');
   assert.equal(body.product.variants[0].compare_at_price, '1999');
   assert.equal(body.product.variants[1].compare_at_price, null);
-  assert.deepEqual(body.product.images, [{ src: 'https://shop.example.test/m/abc/original?sig=x' }]);
+  assert.deepEqual(body.product.images, [
+    { src: 'https://shop.example.test/m/abc/0-original?sig=x' },
+    { src: 'https://shop.example.test/m/abc/1-enhanced?sig=y' },
+  ]);
   assert.match(body.product.body_html, /Light &amp; soft/);
 });
 

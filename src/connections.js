@@ -111,10 +111,10 @@ export async function listOnShopify(db, tenantId, product) {
   if (!fields) return null;
 
   const base = (process.env.PUBLIC_BASE_URL || '').replace(/\/$/, '');
-  const image = base && product.media_urls[0] ? `${base}${product.media_urls[0]}` : null;
+  const images = base ? product.media_urls.map((url) => `${base}${url}`) : [];
   let created;
   try {
-    created = await createShopifyProduct(fields, shopifyProductBody(product, image));
+    created = await createShopifyProduct(fields, shopifyProductBody(product, images));
   } catch (err) {
     return { ok: false, detail: err.message };
   }

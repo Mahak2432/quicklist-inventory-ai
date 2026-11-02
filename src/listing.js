@@ -41,7 +41,6 @@ export function normalizeAnalysis(a) {
     gst_percent: null,
     confidence: Number(a.confidence) || 0,
     mock: Boolean(a.mock),
-    images: { mode: 'ORIGINAL', studio: null, studio_method: null },
     answers: {},
   };
 }
@@ -125,6 +124,7 @@ export function parseAnswerRegex(text) {
 
 export function createDraft(db, tenantId, analysis, imagePath = null) {
   const draft = normalizeAnalysis(analysis);
+  draft.photos = imagePath ? [newPhoto(imagePath, 'upload')] : [];
   const id = randomUUID();
   db.prepare('INSERT INTO listing_drafts (id, tenant_id, status, image_path, draft_json) VALUES (?, ?, ?, ?, ?)')
     .run(id, tenantId, 'NEEDS_INFO', imagePath, JSON.stringify(draft));
@@ -133,7 +133,7 @@ export function createDraft(db, tenantId, analysis, imagePath = null) {
 
 export function getDraft(db, tenantId, id) {
   const row = loadRow(db, tenantId, id);
-  return draftView(id, JSON.parse(row.draft_json));
+  return draftView(id, loadDraft(row));
 }
 
 // Accepts free text (`{ text }`), structured answers (`{ answers }`) and/or
@@ -141,7 +141,7 @@ export function getDraft(db, tenantId, id) {
 // cleaned photo on first use.
 export async function updateDraft(db, tenantId, id, input) {
   const row = loadRow(db, tenantId, id);
-  const draft = JSON.parse(row.draft_json);
+  const draft = loadDraft(row);
   let parsed = input.answers ?? {};
   let parser = 'form';
   let parserError = null;
@@ -163,7 +163,8 @@ export async function updateDraft(db, tenantId, id, input) {
 
   draft.answers = mergeAnswers(draft.answers, parsed, draft.category);
   if (input.fields) applyFields(draft, input.fields);
-  if (input.image_mode) await applyImageMode(draft, readImage(row.image_path), input.image_mode);
+  if (input.image_mode) await applyModeToAll(draft, input.image_mode);
+  if (input.photo_mode) await applyPhotoMode(draft, Number(input.photo_mode.index), input.photo_mode.mode);
   saveDraft(db, tenantId, id, draft);
   return { ...draftView(id, draft), parser, parser_error: parserError };
 }
@@ -190,26 +191,78 @@ function applyFields(draft, fields) {
   }
 }
 
-async function applyImageMode(draft, original, mode) {
+// Each photo keeps its original upload and, once enhanced, a white-background
+// version. `mode` says which one goes on the listing.
+function newPhoto(original, source) {
+  return { original, enhanced: null, mode: 'ORIGINAL', method: null, source };
+}
+
+// Drafts saved before multi-photo listings kept one photo in `image_path` and
+// its white version under `images`. Read those into the new shape.
+function photosOf(row, draft) {
+  if (draft.photos) return draft.photos;
+  if (!row.image_path) return [];
+  const legacy = draft.images ?? {};
+  return [{
+    original: row.image_path,
+    enhanced: legacy.studio ?? null,
+    mode: legacy.mode === 'STUDIO' ? 'STUDIO' : 'ORIGINAL',
+    method: legacy.studio_method ?? null,
+    source: 'upload',
+  }];
+}
+
+function loadDraft(row) {
+  const draft = JSON.parse(row.draft_json);
+  draft.photos = photosOf(row, draft);
+  delete draft.images;
+  return draft;
+}
+
+// Media links name a photo and a version, such as `0-original` or `1-enhanced`.
+// Links made before multi-photo listings used `original` and `studio` for the first photo.
+function parseVariant(variant) {
+  const m = /^(\d+)-(original|enhanced)$/.exec(variant);
+  if (m) return { index: Number(m[1]), kind: m[2] };
+  return { index: 0, kind: variant === 'studio' ? 'enhanced' : 'original' };
+}
+
+function fileOf(photo, kind) {
+  if (!photo) return null;
+  return kind === 'enhanced' ? photo.enhanced : photo.original;
+}
+
+// The version a photo shows on the listing.
+function chosenKind(photo) {
+  return photo.mode === 'STUDIO' && photo.enhanced ? 'enhanced' : 'original';
+}
+
+async function applyPhotoMode(draft, index, mode) {
   if (mode !== 'ORIGINAL' && mode !== 'STUDIO') {
     throw new InventoryError('BAD_IMAGE_MODE', 'image_mode must be ORIGINAL or STUDIO');
   }
-  if (mode === 'STUDIO' && !draft.images.studio) {
-    if (!original) throw new InventoryError('NOT_FOUND', 'No original photo for this draft');
+  const photo = draft.photos[index];
+  if (!photo) throw new InventoryError('NOT_FOUND', `No photo ${index}`);
+  if (mode === 'STUDIO' && !photo.enhanced) {
+    const original = readImage(photo.original);
+    if (!original) throw new InventoryError('NOT_FOUND', 'The original photo is missing');
     const studio = await makeStudioImage(original);
-    draft.images.studio = storeImage(studio.buffer, studio.mime);
-    draft.images.studio_method = studio.method;
+    photo.enhanced = storeImage(studio.buffer, studio.mime);
+    photo.method = studio.method;
   }
-  draft.images.mode = mode;
+  photo.mode = mode;
+}
+
+async function applyModeToAll(draft, mode) {
+  for (let i = 0; i < draft.photos.length; i++) await applyPhotoMode(draft, i, mode);
 }
 
 export function publishDraft(db, tenantId, id) {
   const row = loadRow(db, tenantId, id);
-  const draft = JSON.parse(row.draft_json);
+  const draft = loadDraft(row);
   const missing = missingSlots(draft);
   if (missing.length) throw new InventoryError('NEEDS_INFO', questionFor(missing));
 
-  const variant = draft.images.mode === 'STUDIO' && draft.images.studio ? 'studio' : 'original';
   const { masterSku, variants } = buildVariants(draft);
   const product = createProduct(db, tenantId, {
     master_sku: masterSku,
@@ -229,8 +282,11 @@ export function publishDraft(db, tenantId, id) {
       search_terms: draft.search_terms,
       bullets: draft.bullets,
     },
-    // Signed public link, so marketplaces can fetch the image without a login.
-    media_urls: row.image_path ? [`/m/${id}/${variant}?sig=${signMedia(id, variant)}`] : [],
+    // One signed public link per photo, so marketplaces can fetch each image without a login.
+    media_urls: draft.photos.map((photo, i) => {
+      const variant = `${i}-${chosenKind(photo)}`;
+      return `/m/${id}/${variant}?sig=${signMedia(id, variant)}`;
+    }),
     variants,
   });
   db.prepare("UPDATE listing_drafts SET status = 'PUBLISHED', updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(id);
@@ -239,20 +295,22 @@ export function publishDraft(db, tenantId, id) {
 
 // Which photo a seller sees for a draft: their chosen version, or the original.
 export function mediaName(db, tenantId, id, variant = 'auto') {
-  const row = loadRow(db, tenantId, id);
-  const draft = JSON.parse(row.draft_json);
-  if (variant === 'original') return row.image_path;
-  if (variant === 'studio') return draft.images?.studio ?? null;
-  return draft.images?.mode === 'STUDIO' && draft.images?.studio ? draft.images.studio : row.image_path;
+  const draft = loadDraft(loadRow(db, tenantId, id));
+  if (variant === 'auto') {
+    const first = draft.photos[0];
+    return first ? fileOf(first, chosenKind(first)) : null;
+  }
+  const { index, kind } = parseVariant(variant);
+  return fileOf(draft.photos[index], kind);
 }
 
 // Used by the signed public media route. The HMAC check happens before this
 // is called, so no tenant lookup is needed here.
 export function publicMedia(db, id, variant) {
-  const row = db.prepare('SELECT image_path, draft_json FROM listing_drafts WHERE id = ?').get(id);
+  const row = db.prepare('SELECT * FROM listing_drafts WHERE id = ?').get(id);
   if (!row) return null;
-  if (variant === 'studio') return JSON.parse(row.draft_json).images?.studio ?? null;
-  return row.image_path;
+  const { index, kind } = parseVariant(variant);
+  return fileOf(loadDraft(row).photos[index], kind);
 }
 
 // Builds SKUs like SHOE-NAV-3F2A-UK7. The random suffix keeps two navy
@@ -300,6 +358,50 @@ function loadRow(db, tenantId, id) {
   const row = db.prepare('SELECT * FROM listing_drafts WHERE id = ? AND tenant_id = ?').get(id, tenantId);
   if (!row) throw new InventoryError('NOT_FOUND', `No draft ${id}`);
   return row;
+}
+
+export const MAX_PHOTOS = 8;
+
+// Adds a photo to a draft. `front` puts it first, so it becomes the main image.
+export function addPhoto(db, tenantId, id, { buffer, mime, source = 'upload', front = false }) {
+  const row = loadRow(db, tenantId, id);
+  const draft = loadDraft(row);
+  if (draft.photos.length >= MAX_PHOTOS) {
+    throw new InventoryError('TOO_MANY_PHOTOS', `A listing holds up to ${MAX_PHOTOS} photos`);
+  }
+  const photo = newPhoto(storeImage(buffer, mime), source);
+  if (front) draft.photos.unshift(photo);
+  else draft.photos.push(photo);
+  saveDraft(db, tenantId, id, draft);
+  return draftView(id, draft);
+}
+
+// Swaps in a photo the seller has edited. If they chose the white version, it is made again.
+export async function replacePhoto(db, tenantId, id, index, { buffer, mime }) {
+  const row = loadRow(db, tenantId, id);
+  const draft = loadDraft(row);
+  const photo = draft.photos[index];
+  if (!photo) throw new InventoryError('NOT_FOUND', `No photo ${index}`);
+  const wasStudio = photo.mode === 'STUDIO';
+  Object.assign(photo, { original: storeImage(buffer, mime), enhanced: null, method: null, mode: 'ORIGINAL', source: 'edited' });
+  if (wasStudio) await applyPhotoMode(draft, index, 'STUDIO');
+  saveDraft(db, tenantId, id, draft);
+  return draftView(id, draft);
+}
+
+export function removePhoto(db, tenantId, id, index) {
+  const row = loadRow(db, tenantId, id);
+  const draft = loadDraft(row);
+  if (!draft.photos[index]) throw new InventoryError('NOT_FOUND', `No photo ${index}`);
+  draft.photos.splice(index, 1);
+  saveDraft(db, tenantId, id, draft);
+  return draftView(id, draft);
+}
+
+// Words that ask for a new picture of the product, such as "put on a mannequin".
+const NOTE_PHOTO = /\b(mann?e?quin|manequ[a-z]*|model|wear|worn|put on|on a body|background)\b/i;
+export function wantsNotePhoto(note) {
+  return NOTE_PHOTO.test(String(note ?? ''));
 }
 
 function saveDraft(db, tenantId, id, draft) {
