@@ -49,10 +49,11 @@ export const CONNECTORS = {
     label: 'Shopify',
     kind: 'store',
     blurb: 'Sync stock to your Shopify store.',
-    guide: 'In Shopify admin, create a custom app with inventory and product scopes, then paste its Admin API token. A free development store works for testing. Link each SKU to its variant ID with POST /api/channels.',
+    guide: 'In the Shopify Dev Dashboard, install your app on the store. Then paste its store domain, Client ID, Client secret and location ID here. The server requests a short-lived token itself. Link each SKU to its variant ID with POST /api/channels.',
     fields: [
       { name: 'shop_domain', label: 'Store domain', secret: false, help: 'For example yourstore.myshopify.com' },
-      { name: 'access_token', label: 'Admin API access token', secret: true, help: 'Starts with shpat_' },
+      { name: 'client_id', label: 'Client ID', secret: false, help: 'Dev Dashboard → your app → Settings.' },
+      { name: 'client_secret', label: 'Client secret', secret: true, help: 'Dev Dashboard → your app → Settings.' },
       { name: 'location_id', label: 'Location ID', secret: false, help: 'Shopify admin → Settings → Locations. Numbers only.' },
     ],
   },
@@ -165,6 +166,38 @@ async function flipkartToken(f) {
   return (await res.json()).access_token;
 }
 
+// A Dev Dashboard app trades its Client ID and secret for a token that lasts about a day.
+// Tokens stay in memory only, one per store and app.
+const shopifyTokens = new Map();
+
+async function shopifyToken(f, { fresh = false } = {}) {
+  const key = `${f.shop_domain}|${f.client_id}`;
+  const cached = shopifyTokens.get(key);
+  if (!fresh && cached && cached.expiresAt > Date.now() + 60_000) return cached.token;
+  const res = await http(`https://${f.shop_domain}/admin/oauth/access_token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ grant_type: 'client_credentials', client_id: f.client_id, client_secret: f.client_secret }),
+  });
+  if (!res.ok) throw new Error(rejected('Shopify', res));
+  const body = await res.json();
+  shopifyTokens.set(key, { token: body.access_token, expiresAt: Date.now() + (Number(body.expires_in) || 3600) * 1000 });
+  return body.access_token;
+}
+
+// Calls the Shopify Admin API. A token the store rejects is replaced once, then the call is retried.
+async function shopifyAdmin(f, path, init = {}) {
+  const call = async (fresh) => {
+    const token = await shopifyToken(f, { fresh });
+    return http(`https://${f.shop_domain}/admin/api/${SHOPIFY_API}${path}`, {
+      ...init,
+      headers: { ...init.headers, 'X-Shopify-Access-Token': token },
+    });
+  };
+  const res = await call(false);
+  return res.status === 401 ? call(true) : res;
+}
+
 function signedPost(url, secret, payload) {
   const body = JSON.stringify(payload);
   const signature = createHmac('sha256', secret).update(body).digest('hex');
@@ -190,9 +223,7 @@ export async function testConnection(platform, f) {
         await flipkartToken(f);
         return { ok: true, detail: 'Flipkart accepted your app credentials.' };
       case 'SHOPIFY': {
-        const res = await http(`https://${f.shop_domain}/admin/api/${SHOPIFY_API}/shop.json`, {
-          headers: { 'X-Shopify-Access-Token': f.access_token },
-        });
+        const res = await shopifyAdmin(f, '/shop.json');
         return res.ok ? { ok: true, detail: 'Connected to your Shopify store.' } : { ok: false, detail: rejected('Shopify', res) };
       }
       case 'WOOCOMMERCE': {
@@ -231,9 +262,7 @@ export async function matchListings(platform, f, skus) {
   const matches = new Map();
   try {
     if (platform === 'SHOPIFY') {
-      const res = await http(`https://${f.shop_domain}/admin/api/${SHOPIFY_API}/products.json?fields=id,variants&limit=250`, {
-        headers: { 'X-Shopify-Access-Token': f.access_token },
-      });
+      const res = await shopifyAdmin(f, '/products.json?fields=id,variants&limit=250');
       if (!res.ok) return matches;
       const found = parseShopifyProducts(await res.json());
       for (const sku of skus) if (found.has(sku)) matches.set(sku, found.get(sku));
@@ -290,14 +319,12 @@ export async function pushStock(platform, f, { sku, qty, listingId }, ctx = {}) 
       }
       case 'SHOPIFY': {
         if (!/^\d+$/.test(String(listingId))) return { ok: false, error: 'Link this SKU to its Shopify variant ID first' };
-        const base = `https://${f.shop_domain}/admin/api/${SHOPIFY_API}`;
-        const headers = { 'X-Shopify-Access-Token': f.access_token, 'Content-Type': 'application/json' };
-        const variant = await http(`${base}/variants/${listingId}.json`, { headers });
+        const variant = await shopifyAdmin(f, `/variants/${listingId}.json`);
         if (!variant.ok) return { ok: false, error: rejected('Shopify', variant) };
         const inventoryItemId = (await variant.json()).variant.inventory_item_id;
-        const res = await http(`${base}/inventory_levels/set.json`, {
+        const res = await shopifyAdmin(f, '/inventory_levels/set.json', {
           method: 'POST',
-          headers,
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ location_id: Number(f.location_id), inventory_item_id: inventoryItemId, available: qty }),
         });
         return res.ok ? { ok: true } : { ok: false, error: rejected('Shopify', res) };

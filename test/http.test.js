@@ -107,7 +107,7 @@ test('connections list every connector with no secrets, and bad addresses are re
   const bad = await call('/api/connections/SHOPIFY', {
     method: 'PUT',
     headers: auth(),
-    body: JSON.stringify({ fields: { shop_domain: 'not-shopify.example.com', access_token: 'shpat_x', location_id: '1' } }),
+    body: JSON.stringify({ fields: { shop_domain: 'not-shopify.example.com', client_id: 'client-x', client_secret: 'secret-x', location_id: '1' } }),
   });
   assert.equal(bad.status, 400);
   assert.equal((await bad.json()).error, 'BAD_FIELD');

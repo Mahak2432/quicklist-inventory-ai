@@ -72,7 +72,7 @@ Never paste these into chat or WhatsApp. Put server values in the host's environ
 ## Testing the connections
 
 - **Demo marketplace:** no account needed. Connect it, then place a test order from the Orders page. Each stock push appears on the Settings page. Start here.
-- **Shopify:** create a free development store in the Shopify Partners dashboard. Make a custom app with inventory and product scopes, then paste its Admin API token.
+- **Shopify:** create a free development store from the Dev stores page in the Shopify Dev Dashboard. Create an app there with product and inventory scopes, install it on the store, then paste the store domain, Client ID, Client secret and location ID. The app requests its own short-lived token.
 - **WooCommerce:** run WordPress with WooCommerce on your computer (for example with Local or Docker). Create Read/Write REST keys under WooCommerce → Settings → Advanced.
 - **My own website:** point it at a test receiver such as webhook.site. Pushes arrive signed with `X-QuickList-Signature`. Use test data only.
 - **Amazon India and Flipkart:** need developer and seller accounts. The Amazon request shapes come from the SP-API documentation and are untested against a live account. Check them in the Amazon sandbox before go-live.

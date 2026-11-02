@@ -45,10 +45,10 @@ From the participant guide and official rules:
 
 ## Shopify test store, for the video
 
-1. Create a free Shopify Partners account, then a development store.
-2. In the store admin, go to **Settings → Apps and sales channels → Develop apps**. Create an app with read and write scopes for products and inventory. Install it and copy the Admin API access token. Shopify shows it once.
+1. Create a free Shopify Partners account, then a development store from the **Dev stores** page in the Dev Dashboard (`https://dev.shopify.com/dashboard/`).
+2. In the Dev Dashboard, create an app with `read_products`, `read_inventory` and `write_inventory` scopes. Install it on the store. Copy its Client ID and Client secret from the app's **Settings** page.
 3. Find the location ID under **Settings → Locations**. It's the number in the location's web address.
-4. In the app, go to **Settings → Stores and marketplaces → Shopify**. Enter the store domain (`yourstore.myshopify.com`), the token and the location ID, then save and test. Matching SKUs are linked automatically when the store already has them.
+4. In the app, go to **Settings → Stores and marketplaces → Shopify**. Enter the store domain (`yourstore.myshopify.com`), the Client ID, the Client secret and the location ID, then save and test. Matching SKUs are linked automatically when the store already has them.
 5. To create products in the store, export the Shopify sheet from the Listings page and import it under **Products → Import**. Shopify fetches the photos from the public link, so run this after hosting, with `PUBLIC_BASE_URL` set.
 
 ## Be honest in the video

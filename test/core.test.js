@@ -155,8 +155,8 @@ test('seller-entered addresses cannot point inside the network', () => {
   assert.throws(() => validateFields('CUSTOM_SITE', { stock_webhook_url: 'https://localhost/hook', signing_secret: 'x' }), /private network/);
   assert.throws(() => validateFields('CUSTOM_SITE', { stock_webhook_url: 'https://10.0.0.5/hook', signing_secret: 'x' }), /private network/);
   assert.throws(() => validateFields('CUSTOM_SITE', { stock_webhook_url: 'http://example.com/hook', signing_secret: 'x' }), /https/);
-  assert.throws(() => validateFields('SHOPIFY', { shop_domain: 'evil.example.com', access_token: 'x' }), /myshopify/);
-  const shopify = validateFields('SHOPIFY', { shop_domain: 'Demo-Store.myshopify.com', access_token: 'x', location_id: '123' });
+  assert.throws(() => validateFields('SHOPIFY', { shop_domain: 'evil.example.com', client_id: 'x', client_secret: 'x' }), /myshopify/);
+  const shopify = validateFields('SHOPIFY', { shop_domain: 'Demo-Store.myshopify.com', client_id: 'x', client_secret: 'x', location_id: '123' });
   assert.equal(shopify.shop_domain, 'demo-store.myshopify.com');
   assert.equal(
     validateFields('WOOCOMMERCE', { site_url: 'https://shop.example.com/', consumer_key: 'a', consumer_secret: 'b' }).site_url,
