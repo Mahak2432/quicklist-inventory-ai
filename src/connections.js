@@ -1,4 +1,13 @@
-import { CONNECTORS, matchListings, pushStock as pushOne, testConnection, validateFields } from './connectors.js';
+import {
+  CONNECTORS,
+  createShopifyProduct,
+  matchListings,
+  pushStock as pushOne,
+  setShopifyStock,
+  shopifyProductBody,
+  testConnection,
+  validateFields,
+} from './connectors.js';
 import { InventoryError, linkSkusToChannel, SKU_LINKED } from './inventory.js';
 import { decrypt, encrypt, vaultReady } from './vault.js';
 
@@ -91,6 +100,46 @@ export async function retestConnection(db, tenantId, platform) {
 
 export function removeConnection(db, tenantId, platform) {
   db.prepare('DELETE FROM connections WHERE tenant_id = ? AND platform = ?').run(tenantId, platform);
+}
+
+// Lists a newly published product on the seller's Shopify store, when Shopify is connected.
+// The product is already saved, so a failure is reported back and does not undo the publish.
+export async function listOnShopify(db, tenantId, product) {
+  const row = db.prepare("SELECT status FROM connections WHERE tenant_id = ? AND platform = 'SHOPIFY'").get(tenantId);
+  if (row?.status !== 'CONNECTED') return null;
+  const fields = loadFields(db, tenantId, 'SHOPIFY');
+  if (!fields) return null;
+
+  const base = (process.env.PUBLIC_BASE_URL || '').replace(/\/$/, '');
+  const image = base && product.media_urls[0] ? `${base}${product.media_urls[0]}` : null;
+  let created;
+  try {
+    created = await createShopifyProduct(fields, shopifyProductBody(product, image));
+  } catch (err) {
+    return { ok: false, detail: err.message };
+  }
+
+  const stock = new Map(product.variants.map((v) => [v.sku, v.stock_qty ?? 0]));
+  let failed = 0;
+  for (const v of created) {
+    const qty = stock.get(v.sku) ?? 0;
+    let synced;
+    try {
+      synced = (await setShopifyStock(fields, v.inventoryItemId, qty)).ok;
+    } catch {
+      synced = false;
+    }
+    if (!synced) failed += 1;
+    db.prepare(`INSERT INTO channel_mappings (tenant_id, sku, platform, platform_listing_id, sync_status, last_pushed_qty)
+                VALUES (?, ?, 'SHOPIFY', ?, ?, ?)
+                ON CONFLICT(tenant_id, sku, platform) DO UPDATE SET platform_listing_id = excluded.platform_listing_id,
+                  sync_status = excluded.sync_status, last_pushed_qty = excluded.last_pushed_qty, updated_at = CURRENT_TIMESTAMP`)
+      .run(tenantId, v.sku, v.variantId, synced ? 'SYNCED' : 'ERROR', synced ? qty : null);
+  }
+
+  const count = `${created.length} variant${created.length === 1 ? '' : 's'}`;
+  if (failed) return { ok: false, detail: `Listed ${count} on Shopify, but ${failed} stock level${failed === 1 ? ' was' : 's were'} not set.` };
+  return { ok: true, detail: `Listed ${count} on Shopify.` };
 }
 
 export function listConnections(db, tenantId) {

@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { openDb } from './db.js';
 import { makeAdapters } from './channels.js';
 import { CONNECTORS } from './connectors.js';
-import { listConnections, listDemoPushes, removeConnection, retestConnection, saveConnection } from './connections.js';
+import { listConnections, listDemoPushes, listOnShopify, removeConnection, retestConnection, saveConnection } from './connections.js';
 import { vaultReady } from './vault.js';
 import { bearerFrom, createAccount, createTenant, getTenant, issueToken, login, revokeToken, tenantForToken } from './auth.js';
 import {
@@ -173,7 +173,10 @@ async function apiRoute(db, tenantId, req, res, url) {
     const [, id, publish] = draft;
     if (method === 'GET' && !publish) return json(res, 200, getDraft(db, tenantId, id));
     if (method === 'PATCH' && !publish) return json(res, 200, await updateDraft(db, tenantId, id, await readJson(req)));
-    if (method === 'POST' && publish) return json(res, 201, publishDraft(db, tenantId, id));
+    if (method === 'POST' && publish) {
+      const product = publishDraft(db, tenantId, id);
+      return json(res, 201, { ...product, shopify: await listOnShopify(db, tenantId, product) });
+    }
   }
   const media = pathname.match(/^\/api\/media\/([\w-]+)$/);
   if (method === 'GET' && media) {

@@ -198,6 +198,59 @@ async function shopifyAdmin(f, path, init = {}) {
   return res.status === 401 ? call(true) : res;
 }
 
+function escapeHtml(text) {
+  return String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// The product body Shopify's Admin API expects. Each SKU becomes a variant, and sizes become the Size option.
+export function shopifyProductBody(product, imageUrl) {
+  const attrs = product.attributes ?? {};
+  const sized = product.variants.some((v) => v.size);
+  const bullets = (attrs.bullets ?? []).map((b) => `<li>${escapeHtml(b)}</li>`).join('');
+  return {
+    product: {
+      title: product.title,
+      body_html: [attrs.description ? `<p>${escapeHtml(attrs.description)}</p>` : '', bullets ? `<ul>${bullets}</ul>` : ''].join(''),
+      vendor: attrs.brand ?? '',
+      tags: (attrs.search_terms ?? []).join(', '),
+      status: 'active',
+      ...(sized ? { options: [{ name: 'Size' }] } : {}),
+      variants: product.variants.map((v) => ({
+        sku: v.sku,
+        price: String(v.selling_price ?? v.mrp ?? 0),
+        compare_at_price: v.mrp && v.mrp > (v.selling_price ?? 0) ? String(v.mrp) : null,
+        ...(sized ? { option1: v.size } : {}),
+        inventory_management: 'shopify',
+      })),
+      ...(imageUrl ? { images: [{ src: imageUrl }] } : {}),
+    },
+  };
+}
+
+// Creates the product in the store. Returns each SKU with its new variant ID and inventory item ID.
+export async function createShopifyProduct(f, body) {
+  const res = await shopifyAdmin(f, '/products.json', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (res.status === 403) {
+    throw new Error('Shopify refused to create the product. Add the write_products scope to the app in the Dev Dashboard, then reinstall it on the store.');
+  }
+  if (!res.ok) throw new Error(rejected('Shopify', res));
+  const { product } = await res.json();
+  return product.variants.map((v) => ({ sku: v.sku, variantId: String(v.id), inventoryItemId: v.inventory_item_id }));
+}
+
+// Sets the available quantity of one inventory item at the seller's location.
+export function setShopifyStock(f, inventoryItemId, qty) {
+  return shopifyAdmin(f, '/inventory_levels/set.json', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ location_id: Number(f.location_id), inventory_item_id: inventoryItemId, available: qty }),
+  });
+}
+
 function signedPost(url, secret, payload) {
   const body = JSON.stringify(payload);
   const signature = createHmac('sha256', secret).update(body).digest('hex');
@@ -322,11 +375,7 @@ export async function pushStock(platform, f, { sku, qty, listingId }, ctx = {}) 
         const variant = await shopifyAdmin(f, `/variants/${listingId}.json`);
         if (!variant.ok) return { ok: false, error: rejected('Shopify', variant) };
         const inventoryItemId = (await variant.json()).variant.inventory_item_id;
-        const res = await shopifyAdmin(f, '/inventory_levels/set.json', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ location_id: Number(f.location_id), inventory_item_id: inventoryItemId, available: qty }),
-        });
+        const res = await setShopifyStock(f, inventoryItemId, qty);
         return res.ok ? { ok: true } : { ok: false, error: rejected('Shopify', res) };
       }
       case 'WOOCOMMERCE': {

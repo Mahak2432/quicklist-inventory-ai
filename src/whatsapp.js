@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import { adjustStock, getStock, InventoryError, listLowStock } from './inventory.js';
 import { analyzePhoto } from './meta.js';
 import { createDraft, getDraft, publishDraft, updateDraft } from './listing.js';
+import { listOnShopify } from './connections.js';
 import { storeImage } from './uploads.js';
 
 const GRAPH = `https://graph.facebook.com/${process.env.WHATSAPP_API_VERSION || 'v21.0'}`;
@@ -165,7 +166,9 @@ async function draftReply(db, tenantId, link, msg, text) {
   if (/^yes$/i.test(text) && !current.question) {
     const product = publishDraft(db, tenantId, link.pending_draft_id);
     db.prepare('UPDATE phone_links SET pending_draft_id = NULL WHERE phone = ?').run(msg.from);
-    return `Listed as ${product.master_sku} with ${product.variants.length} SKU(s). Stock is live.`;
+    const shopify = await listOnShopify(db, tenantId, product);
+    const shopifyNote = shopify ? ` ${shopify.detail}` : '';
+    return `Listed as ${product.master_sku} with ${product.variants.length} SKU(s). Stock is live.${shopifyNote}`;
   }
 
   const view = await updateDraft(db, tenantId, link.pending_draft_id, { text });

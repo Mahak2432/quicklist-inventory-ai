@@ -49,7 +49,7 @@ From the participant guide and official rules:
 2. In the Dev Dashboard, create an app with `read_products`, `read_inventory` and `write_inventory` scopes. Install it on the store. Copy its Client ID and Client secret from the app's **Settings** page.
 3. Find the location ID under **Settings → Locations**. It's the number in the location's web address.
 4. In the app, go to **Settings → Stores and marketplaces → Shopify**. Enter the store domain (`yourstore.myshopify.com`), the Client ID, the Client secret and the location ID, then save and test. Matching SKUs are linked automatically when the store already has them.
-5. To create products in the store, export the Shopify sheet from the Listings page and import it under **Products → Import**. Shopify fetches the photos from the public link, so run this after hosting, with `PUBLIC_BASE_URL` set.
+5. Once Shopify is connected, each product published in the app is created in the store automatically, with its photo, one variant per SKU and the stock level. The app needs the `write_products` scope for this. The Shopify sheet on the Listings page is still there as a fallback. Photos come from the public link, so run this after hosting, with `PUBLIC_BASE_URL` set.
 
 ## Be honest in the video
 
