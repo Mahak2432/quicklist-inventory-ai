@@ -8,15 +8,20 @@
     "node": ">=22.13"
   },
   "scripts": {
-    "start": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning src/server.js",
-    "check:meta": "node --env-file-if-exists=.env scripts/check-meta.js",
+    "build": "node scripts/build.js",
+    "start": "node --env-file-if-exists=.env.local --env-file-if-exists=.env --disable-warning=ExperimentalWarning src/server.js",
+    "check:meta": "node --env-file-if-exists=.env.local --env-file-if-exists=.env scripts/check-meta.js",
     "test": "node --disable-warning=ExperimentalWarning --test \"test/*.test.js\""
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@electric-sql/pglite": "^0.5.14",
     "@modelcontextprotocol/sdk": "^1.32.2",
+    "@neon/config": "^1.10.0",
+    "@neon/env": "^1.6.8",
+    "pg": "^8.23.1",
     "sharp": "^0.34.5",
     "zod": "^4.6.7"
   }

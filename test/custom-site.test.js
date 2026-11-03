@@ -39,7 +39,7 @@ const auth = () => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'applica
 
 test.before(async () => {
   await new Promise((resolve) => receiver.listen(0, '127.0.0.1', resolve));
-  site = createApp(openDb(':memory:'));
+  site = createApp(await openDb('pglite:memory'));
   await new Promise((resolve) => site.listen(0, '127.0.0.1', resolve));
   base = `http://127.0.0.1:${site.address().port}`;
   const shop = await (await call('/api/tenants', {

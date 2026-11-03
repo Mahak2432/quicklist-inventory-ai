@@ -21,11 +21,20 @@ const { saveConnection, listConnections } = await import('../src/connections.js'
 const { makeAdapters } = await import('../src/channels.js');
 const { validateFields } = await import('../src/connectors.js');
 
-const freshShop = (name = 'Test shop') => {
-  const db = openDb(':memory:');
-  const { tenantId } = createTenant(db, name);
+// One in-memory database per test file. Each shop has its own tenant_id, so tests stay separate.
+const sharedDb = openDb('pglite:memory');
+const freshShop = async (name = 'Test shop') => {
+  const db = await sharedDb;
+  const { tenantId } = await createTenant(db, name);
   return { db, tenantId };
 };
+
+const shoeProduct = (db, tenantId, stock) => createProduct(db, tenantId, {
+  master_sku: 'SHOE-1',
+  title: 'Shoe',
+  category: 'FOOTWEAR',
+  variants: [{ sku: 'SHOE-1-7', size: '7', stock_qty: stock }],
+});
 
 test('vault round-trips, uses a fresh IV, and rejects tampering', () => {
   const blob = encrypt('secret-value');
@@ -36,65 +45,50 @@ test('vault round-trips, uses a fresh IV, and rejects tampering', () => {
   assert.throws(() => decrypt(parts.join('.')));
 });
 
-test('manual stock changes cannot go below zero', () => {
-  const { db, tenantId } = freshShop();
-  createProduct(db, tenantId, {
-    master_sku: 'SHOE-1',
-    title: 'Shoe',
-    category: 'FOOTWEAR',
-    variants: [{ sku: 'SHOE-1-7', size: '7', stock_qty: 2 }],
-  });
-  assert.throws(() => adjustStock(db, tenantId, 'SHOE-1-7', -5), /Only 2 left/);
-  assert.equal(adjustStock(db, tenantId, 'SHOE-1-7', -1).qty, 1);
-  assert.equal(getStock(db, tenantId, 'SHOE-1-7').stock_qty, 1);
+test('manual stock changes cannot go below zero', async () => {
+  const { db, tenantId } = await freshShop();
+  await shoeProduct(db, tenantId, 2);
+  await assert.rejects(adjustStock(db, tenantId, 'SHOE-1-7', -5), /Only 2 left/);
+  assert.equal((await adjustStock(db, tenantId, 'SHOE-1-7', -1)).qty, 1);
+  assert.equal((await getStock(db, tenantId, 'SHOE-1-7')).stock_qty, 1);
 });
 
-test('the same marketplace order line changes stock only once', () => {
-  const { db, tenantId } = freshShop();
-  createProduct(db, tenantId, {
-    master_sku: 'SHOE-1',
-    title: 'Shoe',
-    category: 'FOOTWEAR',
-    variants: [{ sku: 'SHOE-1-7', size: '7', stock_qty: 2 }],
-  });
+test('the same marketplace order line changes stock only once', async () => {
+  const { db, tenantId } = await freshShop();
+  await shoeProduct(db, tenantId, 2);
   const order = { order_id: 'O-1', lines: [{ line_id: 'L-1', sku: 'SHOE-1-7', quantity: 1 }] };
-  assert.equal(processOrder(db, tenantId, 'FLIPKART', order).lines[0].status, 'APPLIED');
-  assert.equal(processOrder(db, tenantId, 'FLIPKART', order).lines[0].status, 'DUPLICATE');
-  assert.equal(getStock(db, tenantId, 'SHOE-1-7').stock_qty, 1);
+  assert.equal((await processOrder(db, tenantId, 'FLIPKART', order)).lines[0].status, 'APPLIED');
+  assert.equal((await processOrder(db, tenantId, 'FLIPKART', order)).lines[0].status, 'DUPLICATE');
+  assert.equal((await getStock(db, tenantId, 'SHOE-1-7')).stock_qty, 1);
 });
 
-test('an order larger than stock is counted and flagged as oversold', () => {
-  const { db, tenantId } = freshShop();
-  createProduct(db, tenantId, {
-    master_sku: 'SHOE-1',
-    title: 'Shoe',
-    category: 'FOOTWEAR',
-    variants: [{ sku: 'SHOE-1-7', size: '7', stock_qty: 1 }],
-  });
-  const result = processOrder(db, tenantId, 'AMAZON_IN', {
+test('an order larger than stock is counted and flagged as oversold', async () => {
+  const { db, tenantId } = await freshShop();
+  await shoeProduct(db, tenantId, 1);
+  const result = await processOrder(db, tenantId, 'AMAZON_IN', {
     AmazonOrderId: '402-1',
     OrderItems: [{ OrderItemId: 'I-1', SellerSKU: 'SHOE-1-7', QuantityOrdered: 3 }],
   });
   assert.equal(result.lines[0].status, 'APPLIED');
   assert.equal(result.lines[0].oversold, true);
-  assert.equal(getStock(db, tenantId, 'SHOE-1-7').stock_qty, -2);
+  assert.equal((await getStock(db, tenantId, 'SHOE-1-7')).stock_qty, -2);
 });
 
-test('one shop cannot read another shop stock', () => {
-  const a = freshShop('Shop A');
-  createProduct(a.db, a.tenantId, {
+test('one shop cannot read another shop stock', async () => {
+  const a = await freshShop('Shop A');
+  await createProduct(a.db, a.tenantId, {
     master_sku: 'SHOE-1',
     title: 'Shoe',
     category: 'FOOTWEAR',
     variants: [{ sku: 'SHOE-1-7', size: '7', stock_qty: 4 }],
   });
-  const b = createTenant(a.db, 'Shop B');
-  assert.throws(() => getStock(a.db, b.tenantId, 'SHOE-1-7'), /No SKU/);
+  const b = await createTenant(a.db, 'Shop B');
+  await assert.rejects(getStock(a.db, b.tenantId, 'SHOE-1-7'), /No SKU/);
 });
 
 test('a photo draft fills in from one seller reply and publishes a SKU per size', async () => {
-  const { db, tenantId } = freshShop();
-  const view = createDraft(db, tenantId, {
+  const { db, tenantId } = await freshShop();
+  const view = await createDraft(db, tenantId, {
     title: 'Navy mesh running shoes',
     category: 'FOOTWEAR',
     color: 'Navy Blue',
@@ -113,7 +107,7 @@ test('a photo draft fills in from one seller reply and publishes a SKU per size'
   assert.equal(after.draft.answers.stock_per_size['8'], 15);
   assert.equal(after.draft.answers.selling_price, 799);
 
-  const product = publishDraft(db, tenantId, view.id);
+  const product = await publishDraft(db, tenantId, view.id);
   assert.equal(product.variants.length, 4);
   assert.equal(product.variants[0].stock_qty, 15);
   assert.equal(product.variants[0].mrp, 1499);
@@ -165,24 +159,19 @@ test('seller-entered addresses cannot point inside the network', () => {
 });
 
 test('connecting the demo marketplace pushes stock after a manual change', async () => {
-  const { db, tenantId } = freshShop();
-  createProduct(db, tenantId, {
-    master_sku: 'SHOE-1',
-    title: 'Shoe',
-    category: 'FOOTWEAR',
-    variants: [{ sku: 'SHOE-1-7', size: '7', stock_qty: 5 }],
-  });
+  const { db, tenantId } = await freshShop();
+  await shoeProduct(db, tenantId, 5);
   const connected = await saveConnection(db, tenantId, 'DEMO', {});
   assert.equal(connected.status, 'CONNECTED');
 
-  adjustStock(db, tenantId, 'SHOE-1-7', -2, { source: 'DASHBOARD' });
+  await adjustStock(db, tenantId, 'SHOE-1-7', -2, { source: 'DASHBOARD' });
   const results = await drainOutbox(db, tenantId, makeAdapters(db));
   assert.equal(results[0].status, 'DONE');
-  assert.equal(db.prepare('SELECT qty FROM demo_pushes WHERE tenant_id = ?').get(tenantId).qty, 3);
+  assert.equal((await db.prepare('SELECT qty FROM demo_pushes WHERE tenant_id = ?').get(tenantId)).qty, 3);
 });
 
 test('saved connections never return secret values', async () => {
-  const { db, tenantId } = freshShop();
+  const { db, tenantId } = await freshShop();
   const realFetch = globalThis.fetch;
   globalThis.fetch = async () => new Response('[]', { status: 200, headers: { 'content-type': 'application/json' } });
   try {
@@ -192,7 +181,7 @@ test('saved connections never return secret values', async () => {
       consumer_secret: 'cs_super_secret_value_9876',
     });
     assert.equal(saved.status, 'CONNECTED');
-    const listed = listConnections(db, tenantId);
+    const listed = await listConnections(db, tenantId);
     const text = JSON.stringify(listed);
     assert.equal(text.includes('cs_super_secret_value_9876'), false);
     assert.equal(text.includes('ck_live_visible_key_1234'), false);

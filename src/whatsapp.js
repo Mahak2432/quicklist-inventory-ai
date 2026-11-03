@@ -60,16 +60,16 @@ export function normalizePhone(phone) {
   return String(phone ?? '').replace(/\D/g, '');
 }
 
-export function linkPhone(db, tenantId, phone) {
+export async function linkPhone(db, tenantId, phone) {
   const p = normalizePhone(phone);
   if (!p) throw new InventoryError('BAD_PHONE', 'Phone number is required');
-  db.prepare(`INSERT INTO phone_links (phone, tenant_id) VALUES (?, ?)
+  await db.prepare(`INSERT INTO phone_links (phone, tenant_id) VALUES (?, ?)
               ON CONFLICT(phone) DO UPDATE SET tenant_id = excluded.tenant_id, pending_draft_id = NULL`).run(p, tenantId);
   return { phone: p, tenant_id: tenantId };
 }
 
 export async function handleIncoming(db, msg) {
-  const link = db.prepare('SELECT tenant_id, pending_draft_id FROM phone_links WHERE phone = ?').get(msg.from);
+  const link = await db.prepare('SELECT tenant_id, pending_draft_id FROM phone_links WHERE phone = ?').get(msg.from);
   if (!link) return 'This number is not linked to a seller account. Ask the account owner to link it in the app.';
   const tenantId = link.tenant_id;
 
@@ -104,11 +104,11 @@ export function matchQtySku(text, verbRe) {
   return null;
 }
 
-function adjustText(db, tenantId, msg, sku, delta, reason) {
+async function adjustText(db, tenantId, msg, sku, delta, reason) {
   try {
     // The WhatsApp message id is the idempotency key, so Meta's webhook retries
     // cannot apply the same sale twice.
-    const r = adjustStock(db, tenantId, sku, delta, {
+    const r = await adjustStock(db, tenantId, sku, delta, {
       reason,
       source: 'WHATSAPP',
       externalRef: msg.id,
@@ -123,9 +123,9 @@ function adjustText(db, tenantId, msg, sku, delta, reason) {
   }
 }
 
-function stockText(db, tenantId, sku) {
+async function stockText(db, tenantId, sku) {
   try {
-    const s = getStock(db, tenantId, sku);
+    const s = await getStock(db, tenantId, sku);
     return `${s.sku} (${s.title}): ${s.stock_qty} in stock, ₹${s.selling_price ?? '-'}`;
   } catch (err) {
     if (err instanceof InventoryError) return `No SKU ${sku}.`;
@@ -133,8 +133,8 @@ function stockText(db, tenantId, sku) {
   }
 }
 
-function lowStockText(db, tenantId) {
-  const rows = listLowStock(db, tenantId, 5);
+async function lowStockText(db, tenantId) {
+  const rows = await listLowStock(db, tenantId, 5);
   if (!rows.length) return 'Nothing is low right now.';
   return 'Low stock (5 or fewer):\n' + rows.map((r) => `• ${r.sku}: ${r.stock_qty}`).join('\n');
 }
@@ -143,8 +143,8 @@ async function startDraftFromPhoto(db, msg, tenantId) {
   const media = msg.media ?? (await downloadMedia(msg.mediaId));
   const analysis = await analyzePhoto(media, msg.caption);
   const imagePath = storeImage(media.buffer, media.mime);
-  const view = createDraft(db, tenantId, analysis, imagePath);
-  db.prepare('UPDATE phone_links SET pending_draft_id = ? WHERE phone = ?').run(view.id, msg.from);
+  const view = await createDraft(db, tenantId, analysis, imagePath);
+  await db.prepare('UPDATE phone_links SET pending_draft_id = ? WHERE phone = ?').run(view.id, msg.from);
   const head = `Detected: ${view.draft.title} (${view.draft.category}).`;
   const photo = 'Photo: reply "studio" for a white-background version, or "original" to keep yours.';
   return view.question ? `${head}\n${view.question}\n${photo}` : `${head}\n${summary(view.draft)}\n${photo}`;
@@ -152,10 +152,10 @@ async function startDraftFromPhoto(db, msg, tenantId) {
 
 async function draftReply(db, tenantId, link, msg, text) {
   if (/^cancel$/i.test(text)) {
-    db.prepare('UPDATE phone_links SET pending_draft_id = NULL WHERE phone = ?').run(msg.from);
+    await db.prepare('UPDATE phone_links SET pending_draft_id = NULL WHERE phone = ?').run(msg.from);
     return 'Draft cancelled.';
   }
-  const current = getDraft(db, tenantId, link.pending_draft_id);
+  const current = await getDraft(db, tenantId, link.pending_draft_id);
 
   if (/^(studio|original)$/i.test(text)) {
     const view = await updateDraft(db, tenantId, link.pending_draft_id, { image_mode: text.toUpperCase() });
@@ -164,8 +164,8 @@ async function draftReply(db, tenantId, link, msg, text) {
   }
 
   if (/^yes$/i.test(text) && !current.question) {
-    const product = publishDraft(db, tenantId, link.pending_draft_id);
-    db.prepare('UPDATE phone_links SET pending_draft_id = NULL WHERE phone = ?').run(msg.from);
+    const product = await publishDraft(db, tenantId, link.pending_draft_id);
+    await db.prepare('UPDATE phone_links SET pending_draft_id = NULL WHERE phone = ?').run(msg.from);
     const shopify = await listOnShopify(db, tenantId, product);
     const shopifyNote = shopify ? ` ${shopify.detail}` : '';
     return `Listed as ${product.master_sku} with ${product.variants.length} SKU(s). Stock is live.${shopifyNote}`;

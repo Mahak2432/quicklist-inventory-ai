@@ -18,15 +18,17 @@ const { encrypt } = await import('../src/vault.js');
 
 const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 
-const freshShop = () => {
-  const db = openDb(':memory:');
-  const { tenantId } = createTenant(db, 'Listing shop');
+// One in-memory database per test file. Each shop has its own tenant_id, so tests stay separate.
+const sharedDb = openDb('pglite:memory');
+const freshShop = async () => {
+  const db = await sharedDb;
+  const { tenantId } = await createTenant(db, 'Listing shop');
   return { db, tenantId };
 };
 
-function connectShopify(db, tenantId, shop) {
+async function connectShopify(db, tenantId, shop) {
   const fields = { shop_domain: shop, client_id: 'client-list', client_secret: 'secret-list', location_id: '42' };
-  db.prepare(`INSERT INTO connections (tenant_id, platform, status, secret_blob, public_json, detail, tested_at, updated_at)
+  await db.prepare(`INSERT INTO connections (tenant_id, platform, status, secret_blob, public_json, detail, tested_at, updated_at)
               VALUES (?, 'SHOPIFY', 'CONNECTED', ?, '{}', '', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`)
     .run(tenantId, encrypt(JSON.stringify(fields)));
 }
@@ -68,9 +70,9 @@ test('a product becomes one Shopify product with a Size option and one variant p
 
 test('publishing lists the product on a connected Shopify store and records each variant', async () => {
   process.env.PUBLIC_BASE_URL = 'https://shop.example.test';
-  const { db, tenantId } = freshShop();
-  connectShopify(db, tenantId, 'listing-store.myshopify.com');
-  const made = makeProduct(db, tenantId);
+  const { db, tenantId } = await freshShop();
+  await connectShopify(db, tenantId, 'listing-store.myshopify.com');
+  const made = await makeProduct(db, tenantId);
   const realFetch = globalThis.fetch;
   const calls = [];
   globalThis.fetch = async (url, init) => {
@@ -102,7 +104,7 @@ test('publishing lists the product on a connected Shopify store and records each
     const levels = calls.filter((c) => c.href.endsWith('/inventory_levels/set.json')).map((c) => JSON.parse(c.body));
     assert.deepEqual(levels.map((l) => [l.inventory_item_id, l.available, l.location_id]), [[7001, 3, 42], [7002, 0, 42]]);
 
-    const maps = db.prepare("SELECT sku, platform_listing_id, sync_status FROM channel_mappings WHERE tenant_id = ? AND platform = 'SHOPIFY' ORDER BY sku").all(tenantId);
+    const maps = await db.prepare("SELECT sku, platform_listing_id, sync_status FROM channel_mappings WHERE tenant_id = ? AND platform = 'SHOPIFY' ORDER BY sku").all(tenantId);
     assert.deepEqual(maps.map((m) => [m.sku, m.platform_listing_id, m.sync_status]), [
       ['SHOE-NAV-LIST1-UK7', '901', 'SYNCED'],
       ['SHOE-NAV-LIST1-UK8', '902', 'SYNCED'],
@@ -114,9 +116,9 @@ test('publishing lists the product on a connected Shopify store and records each
 });
 
 test('a store without the write_products scope keeps the product and says why', async () => {
-  const { db, tenantId } = freshShop();
-  connectShopify(db, tenantId, 'no-scope-store.myshopify.com');
-  const made = makeProduct(db, tenantId);
+  const { db, tenantId } = await freshShop();
+  await connectShopify(db, tenantId, 'no-scope-store.myshopify.com');
+  const made = await makeProduct(db, tenantId);
   const realFetch = globalThis.fetch;
   globalThis.fetch = async (url) => (String(url).endsWith('/admin/oauth/access_token')
     ? json({ access_token: 'shpat_noscope', expires_in: 86399 })
@@ -125,17 +127,17 @@ test('a store without the write_products scope keeps the product and says why', 
     const result = await listOnShopify(db, tenantId, made);
     assert.equal(result.ok, false);
     assert.match(result.detail, /write_products/);
-    const linked = db.prepare("SELECT COUNT(*) AS n FROM channel_mappings WHERE tenant_id = ? AND platform = 'SHOPIFY'").get(tenantId);
+    const linked = await db.prepare("SELECT COUNT(*)::int AS n FROM channel_mappings WHERE tenant_id = ? AND platform = 'SHOPIFY'").get(tenantId);
     assert.equal(linked.n, 0);
-    assert.ok(db.prepare('SELECT 1 FROM products WHERE tenant_id = ? AND master_sku = ?').get(tenantId, made.master_sku));
+    assert.ok(await db.prepare('SELECT 1 FROM products WHERE tenant_id = ? AND master_sku = ?').get(tenantId, made.master_sku));
   } finally {
     globalThis.fetch = realFetch;
   }
 });
 
 test('nothing is sent to Shopify when the store is not connected', async () => {
-  const { db, tenantId } = freshShop();
-  const made = makeProduct(db, tenantId);
+  const { db, tenantId } = await freshShop();
+  const made = await makeProduct(db, tenantId);
   const realFetch = globalThis.fetch;
   let called = false;
   globalThis.fetch = async () => {

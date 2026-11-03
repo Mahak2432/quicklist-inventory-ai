@@ -98,7 +98,7 @@ async function route(db, req, res) {
     return serveStatic(res, pathname);
   }
 
-  const tenantId = tenantForToken(db, bearerFrom(req));
+  const tenantId = await tenantForToken(db, bearerFrom(req));
   if (!tenantId) return json(res, 401, { error: 'UNAUTHORIZED', message: 'Missing or invalid bearer token' });
 
   if (pathname === '/mcp') {
@@ -114,7 +114,7 @@ async function apiRoute(db, tenantId, req, res, url) {
 
   if (method === 'GET' && pathname === '/api/me') {
     return json(res, 200, {
-      tenant: getTenant(db, tenantId),
+      tenant: await getTenant(db, tenantId),
       meta_enabled: metaEnabled(),
       platforms: PLATFORMS,
       integrations: {
@@ -128,7 +128,7 @@ async function apiRoute(db, tenantId, req, res, url) {
   if (method === 'POST' && pathname === '/api/whatsapp/simulate') {
     const b = await readJson(req);
     const phone = normalizePhone(b.phone);
-    const link = db.prepare('SELECT tenant_id FROM phone_links WHERE phone = ?').get(phone);
+    const link = await db.prepare('SELECT tenant_id FROM phone_links WHERE phone = ?').get(phone);
     if (!link || link.tenant_id !== tenantId) throw new HttpError(403, 'That number is not linked to this shop');
     const hasImage = Boolean(b.image_base64);
     if (hasImage && !ALLOWED_IMAGE_TYPES.includes(b.mime)) throw new HttpError(415, 'Send a JPEG, PNG or WebP photo');
@@ -146,7 +146,7 @@ async function apiRoute(db, tenantId, req, res, url) {
   }
 
   if (method === 'GET' && pathname === '/api/connections') {
-    return json(res, 200, { vault_ready: vaultReady(), connectors: listConnections(db, tenantId) });
+    return json(res, 200, { vault_ready: vaultReady(), connectors: await listConnections(db, tenantId) });
   }
   const connection = pathname.match(/^\/api\/connections\/([A-Z_]+)(\/test)?$/);
   if (connection) {
@@ -158,23 +158,23 @@ async function apiRoute(db, tenantId, req, res, url) {
     }
     if (method === 'POST' && testPath) return json(res, 200, await retestConnection(db, tenantId, platform));
     if (method === 'DELETE' && !testPath) {
-      removeConnection(db, tenantId, platform);
+      await removeConnection(db, tenantId, platform);
       return json(res, 200, { removed: true });
     }
   }
-  if (method === 'GET' && pathname === '/api/demo/pushes') return json(res, 200, listDemoPushes(db, tenantId));
+  if (method === 'GET' && pathname === '/api/demo/pushes') return json(res, 200, await listDemoPushes(db, tenantId));
 
   if (method === 'POST' && pathname === '/api/auth/logout') {
-    revokeToken(db, bearerFrom(req));
+    await revokeToken(db, bearerFrom(req));
     return json(res, 200, { ok: true });
   }
 
   if (method === 'POST' && pathname === '/api/tokens') {
     const body = await readJson(req);
-    return json(res, 201, issueToken(db, tenantId, String(body.label ?? 'api').slice(0, 60)));
+    return json(res, 201, await issueToken(db, tenantId, String(body.label ?? 'api').slice(0, 60)));
   }
   if (method === 'POST' && pathname === '/api/whatsapp/link') {
-    return json(res, 200, linkPhone(db, tenantId, (await readJson(req)).phone));
+    return json(res, 200, await linkPhone(db, tenantId, (await readJson(req)).phone));
   }
 
   if (method === 'POST' && pathname === '/api/listings/drafts') {
@@ -183,58 +183,58 @@ async function apiRoute(db, tenantId, req, res, url) {
   const draft = pathname.match(/^\/api\/listings\/drafts\/([\w-]+)(\/publish)?$/);
   if (draft) {
     const [, id, publish] = draft;
-    if (method === 'GET' && !publish) return json(res, 200, getDraft(db, tenantId, id));
+    if (method === 'GET' && !publish) return json(res, 200, await getDraft(db, tenantId, id));
     if (method === 'PATCH' && !publish) return json(res, 200, await updateDraft(db, tenantId, id, await readJson(req)));
     if (method === 'POST' && publish) {
-      const product = publishDraft(db, tenantId, id);
+      const product = await publishDraft(db, tenantId, id);
       return json(res, 201, { ...product, shopify: await listOnShopify(db, tenantId, product) });
     }
   }
   const photoRoute = pathname.match(/^\/api\/listings\/drafts\/([\w-]+)\/photos(?:\/(\d+))?$/);
   if (photoRoute) {
     const [, id, index] = photoRoute;
-    if (method === 'POST' && index === undefined) return json(res, 201, addPhoto(db, tenantId, id, await uploadedPhoto(req)));
+    if (method === 'POST' && index === undefined) return json(res, 201, await addPhoto(db, tenantId, id, await uploadedPhoto(req)));
     if (method === 'PUT' && index !== undefined) {
       return json(res, 200, await replacePhoto(db, tenantId, id, Number(index), await uploadedPhoto(req)));
     }
-    if (method === 'DELETE' && index !== undefined) return json(res, 200, removePhoto(db, tenantId, id, Number(index)));
+    if (method === 'DELETE' && index !== undefined) return json(res, 200, await removePhoto(db, tenantId, id, Number(index)));
   }
   const media = pathname.match(/^\/api\/media\/([\w-]+)$/);
   if (method === 'GET' && media) {
-    const img = readImage(mediaName(db, tenantId, media[1], searchParams.get('variant') ?? 'auto'));
+    const img = readImage(await mediaName(db, tenantId, media[1], searchParams.get('variant') ?? 'auto'));
     if (!img) throw new HttpError(404, 'No image for this draft');
     return raw(res, 200, img.buffer, img.mime);
   }
 
-  if (method === 'GET' && pathname === '/api/products') return json(res, 200, listProducts(db, tenantId));
+  if (method === 'GET' && pathname === '/api/products') return json(res, 200, await listProducts(db, tenantId));
   if (method === 'POST' && pathname === '/api/products') {
     const body = await readJson(req);
     if (!body.master_sku || !body.title) throw new HttpError(400, 'master_sku and title are required');
-    return json(res, 201, upsertProduct(db, tenantId, body));
+    return json(res, 201, await upsertProduct(db, tenantId, body));
   }
 
   const stock = pathname.match(/^\/api\/stock\/([^/]+)$/);
-  if (method === 'GET' && stock) return json(res, 200, getStock(db, tenantId, decodeURIComponent(stock[1])));
+  if (method === 'GET' && stock) return json(res, 200, await getStock(db, tenantId, decodeURIComponent(stock[1])));
   const adjust = pathname.match(/^\/api\/stock\/([^/]+)\/adjust$/);
   if (method === 'POST' && adjust) {
     const body = await readJson(req);
     if (!Number.isInteger(body.delta)) throw new HttpError(400, 'delta must be a whole number');
     const sku = decodeURIComponent(adjust[1]);
-    return json(res, 200, adjustStock(db, tenantId, sku, body.delta, { reason: body.reason ?? 'DASHBOARD', source: 'DASHBOARD' }));
+    return json(res, 200, await adjustStock(db, tenantId, sku, body.delta, { reason: body.reason ?? 'DASHBOARD', source: 'DASHBOARD' }));
   }
   if (method === 'GET' && pathname === '/api/low-stock') {
-    return json(res, 200, listLowStock(db, tenantId, Number(searchParams.get('threshold') ?? 5)));
+    return json(res, 200, await listLowStock(db, tenantId, Number(searchParams.get('threshold') ?? 5)));
   }
   if (method === 'POST' && pathname === '/api/channels') {
     const b = await readJson(req);
-    return json(res, 201, mapChannel(db, tenantId, b.sku, b.platform, b.platform_listing_id));
+    return json(res, 201, await mapChannel(db, tenantId, b.sku, b.platform, b.platform_listing_id));
   }
 
   const order = pathname.match(/^\/api\/orders\/([A-Z_]+)$/);
   if (method === 'POST' && order) {
     const platform = order[1];
     if (!ORDER_PLATFORMS.includes(platform)) throw new HttpError(400, `Unknown platform ${platform}`);
-    const result = processOrder(db, tenantId, platform, await readJson(req));
+    const result = await processOrder(db, tenantId, platform, await readJson(req));
     return json(res, 200, { ...result, message: describeOrder(result) });
   }
 
@@ -246,7 +246,7 @@ async function apiRoute(db, tenantId, req, res, url) {
   if (method === 'GET' && csv) {
     const platform = csv[1];
     if (!PLATFORMS.includes(platform)) throw new HttpError(400, `Unknown platform ${platform}`);
-    const body = buildCsv(platform, listProducts(db, tenantId), PUBLIC_BASE_URL);
+    const body = buildCsv(platform, await listProducts(db, tenantId), PUBLIC_BASE_URL);
     return raw(res, 200, body, 'text/csv; charset=utf-8', {
       'Content-Disposition': `attachment; filename="${platform.toLowerCase()}-listings.csv"`,
     });
@@ -255,7 +255,7 @@ async function apiRoute(db, tenantId, req, res, url) {
   if (method === 'GET' && readiness) {
     const platform = readiness[1];
     if (!PLATFORMS.includes(platform)) throw new HttpError(400, `Unknown platform ${platform}`);
-    const products = listProducts(db, tenantId).map((p) => ({ master_sku: p.master_sku, warnings: exportWarnings(p, platform) }));
+    const products = (await listProducts(db, tenantId)).map((p) => ({ master_sku: p.master_sku, warnings: exportWarnings(p, platform) }));
     return json(res, 200, products);
   }
 
@@ -317,7 +317,7 @@ async function signup(db, req, res) {
   const body = await readJson(req);
   const name = String(body.name ?? '').trim().slice(0, 100);
   if (!name) throw new HttpError(400, 'name is required');
-  return json(res, 201, createTenant(db, name));
+  return json(res, 201, await createTenant(db, name));
 }
 
 // Reads an uploaded photo from the request body and checks its type.
@@ -344,14 +344,14 @@ async function createDraftRoute(db, tenantId, req, res, hint) {
     analysisError = err.message;
     analysis = { title: hint || 'Untitled product', category: 'GENERIC' };
   }
-  const view = createDraft(db, tenantId, analysis, storeImage(photo.buffer, photo.mime));
+  const view = await createDraft(db, tenantId, analysis, storeImage(photo.buffer, photo.mime));
 
   // A note such as "put on a mannequin" asks for a new picture. It becomes the
   // main image, and the seller's own photo stays beside it.
   if (!wantsNotePhoto(hint)) return json(res, 201, { ...view, analysis_error: analysisError, note_photo_error: null });
   try {
     const made = await makeNotePhoto(photo, hint);
-    const withNote = addPhoto(db, tenantId, view.id, { buffer: made, mime: 'image/jpeg', source: 'generated', front: true });
+    const withNote = await addPhoto(db, tenantId, view.id, { buffer: made, mime: 'image/jpeg', source: 'generated', front: true });
     return json(res, 201, { ...withNote, analysis_error: analysisError, note_photo_error: null });
   } catch (err) {
     return json(res, 201, { ...view, analysis_error: analysisError, note_photo_error: err.message });
@@ -392,9 +392,9 @@ async function processWhatsApp(db, msg) {
 
 // Public image link for marketplace exports. The HMAC stops anyone from
 // guessing links to other sellers' photos.
-function publicImageRoute(db, res, id, variant, url) {
+async function publicImageRoute(db, res, id, variant, url) {
   if (!verifyMedia(id, variant, url.searchParams.get('sig'))) throw new HttpError(403, 'Bad or missing signature');
-  const img = readImage(publicMedia(db, id, variant));
+  const img = readImage(await publicMedia(db, id, variant));
   if (!img) throw new HttpError(404, 'No image for this draft');
   return raw(res, 200, img.buffer, img.mime, { 'Cache-Control': 'public, max-age=86400' });
 }
@@ -454,7 +454,7 @@ function sendError(res, err) {
 // Background worker: flushes pending marketplace stock pushes every minute.
 export function startOutboxWorker(db, intervalMs = 60_000) {
   const timer = setInterval(async () => {
-    const tenants = db.prepare("SELECT DISTINCT tenant_id FROM outbox WHERE status = 'PENDING'").all();
+    const tenants = await db.prepare("SELECT DISTINCT tenant_id FROM outbox WHERE status = 'PENDING'").all();
     for (const { tenant_id } of tenants) {
       await drainOutbox(db, tenant_id, makeAdapters(db)).catch((err) => console.error('[outbox]', err));
     }
@@ -465,8 +465,8 @@ export function startOutboxWorker(db, intervalMs = 60_000) {
 
 const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isMain) {
-  const db = openDb();
   const port = Number(process.env.PORT || 3000);
+  const db = await openDb();
   createApp(db).listen(port, () => {
     startOutboxWorker(db);
     console.log(`QuickListInventoryAI running on http://localhost:${port}`);

@@ -24,7 +24,7 @@ const post = (path, body, token) => fetch(`${base}${path}`, {
 });
 
 before(async () => {
-  server = createApp(openDb(':memory:'));
+  server = createApp(await openDb('pglite:memory'));
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   base = `http://127.0.0.1:${server.address().port}`;
 });

@@ -17,9 +17,9 @@ const CHANNELS = ['AMAZON_IN', 'FLIPKART', 'MEESHO', 'SHOPIFY'];
 export function buildMcpServer(db, tenantId) {
   const server = new McpServer({ name: 'quicklist-inventory', version: '0.1.0' });
 
-  const run = (fn) => {
+  const run = async (fn) => {
     try {
-      return { content: [{ type: 'text', text: JSON.stringify(fn(), null, 2) }] };
+      return { content: [{ type: 'text', text: JSON.stringify(await fn(), null, 2) }] };
     } catch (err) {
       const code = err instanceof InventoryError ? err.code : 'ERROR';
       return { isError: true, content: [{ type: 'text', text: JSON.stringify({ error: code, message: err.message }) }] };

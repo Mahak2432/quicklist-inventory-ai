@@ -31,39 +31,42 @@ export function normalizeOrder(platform, raw) {
 
 // Applies one marketplace order. Each line is keyed by platform + order +
 // line, so retried webhooks and overlapping polls cannot deduct twice.
-export function processOrder(db, tenantId, platform, raw) {
+export async function processOrder(db, tenantId, platform, raw) {
   if (!ORDER_PLATFORMS.includes(platform)) throw new InventoryError('BAD_PLATFORM', `Unknown platform ${platform}`);
   const order = normalizeOrder(platform, raw);
   if (!order.orderId || !order.lines.length) {
     throw new InventoryError('BAD_ORDER', 'Order needs an id and at least one line');
   }
 
-  const lines = order.lines.map((line) => {
+  const lines = [];
+  for (const line of order.lines) {
     const base = { lineId: line.lineId, sku: line.sku, quantity: line.quantity };
     if (!line.sku || !Number.isInteger(line.quantity) || line.quantity <= 0 || !line.lineId) {
-      return { ...base, status: 'REJECTED', error: 'Line needs a lineId, sku and a positive whole quantity' };
+      lines.push({ ...base, status: 'REJECTED', error: 'Line needs a lineId, sku and a positive whole quantity' });
+      continue;
     }
     try {
-      const r = adjustStock(db, tenantId, line.sku, -line.quantity, {
+      const r = await adjustStock(db, tenantId, line.sku, -line.quantity, {
         reason: 'ORDER',
         source: platform,
         externalRef: `${order.orderId}:${line.lineId}`,
         allowNegative: true,
       });
-      return {
+      lines.push({
         ...base,
         status: r.duplicate ? 'DUPLICATE' : 'APPLIED',
         qty: r.qty,
         oversold: r.oversold,
         pushedTo: r.pushedTo,
-      };
+      });
     } catch (err) {
       if (err instanceof InventoryError && err.code === 'NOT_FOUND') {
-        return { ...base, status: 'UNKNOWN_SKU', error: err.message };
+        lines.push({ ...base, status: 'UNKNOWN_SKU', error: err.message });
+      } else {
+        throw err;
       }
-      throw err;
     }
-  });
+  }
 
   return { platform, orderId: order.orderId, lines };
 }

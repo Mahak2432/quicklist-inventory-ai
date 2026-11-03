@@ -340,7 +340,7 @@ export async function matchListings(platform, f, skus) {
 // { ok: false, error } or { ok: false, skipped: true } when a push is not possible yet.
 export async function pushStock(platform, f, { sku, qty, listingId }, ctx = {}) {
   if (platform === 'DEMO') {
-    ctx.db.prepare('INSERT INTO demo_pushes (id, tenant_id, sku, qty) VALUES (?, ?, ?, ?)').run(randomUUID(), ctx.tenantId, sku, qty);
+    await ctx.db.prepare('INSERT INTO demo_pushes (id, tenant_id, sku, qty) VALUES (?, ?, ?, ?)').run(randomUUID(), ctx.tenantId, sku, qty);
     return { ok: true };
   }
   if (platform === 'MEESHO') {

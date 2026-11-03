@@ -15,8 +15,8 @@ import { decrypt, encrypt, vaultReady } from './vault.js';
 // blob. Non-secret values are kept in the clear so the form can show them.
 // Secret values are never returned by any function in this file.
 
-export function loadFields(db, tenantId, platform) {
-  const row = db.prepare('SELECT secret_blob FROM connections WHERE tenant_id = ? AND platform = ?').get(tenantId, platform);
+export async function loadFields(db, tenantId, platform) {
+  const row = await db.prepare('SELECT secret_blob FROM connections WHERE tenant_id = ? AND platform = ?').get(tenantId, platform);
   if (!row) return null;
   try {
     return JSON.parse(decrypt(row.secret_blob));
@@ -27,11 +27,11 @@ export function loadFields(db, tenantId, platform) {
 
 // Links each SKU to the store's own product or variant ID, when the store has one.
 async function matchStoreIds(db, tenantId, platform, fields) {
-  const skus = db.prepare('SELECT sku FROM variants WHERE tenant_id = ?').all(tenantId).map((r) => r.sku);
+  const skus = (await db.prepare('SELECT sku FROM variants WHERE tenant_id = ?').all(tenantId)).map((r) => r.sku);
   if (!skus.length) return 0;
   const matches = await matchListings(platform, fields, skus);
   for (const [sku, listingId] of matches) {
-    db.prepare(`INSERT INTO channel_mappings (tenant_id, sku, platform, platform_listing_id) VALUES (?, ?, ?, ?)
+    await db.prepare(`INSERT INTO channel_mappings (tenant_id, sku, platform, platform_listing_id) VALUES (?, ?, ?, ?)
                 ON CONFLICT(tenant_id, sku, platform) DO UPDATE SET platform_listing_id = excluded.platform_listing_id, updated_at = CURRENT_TIMESTAMP`)
       .run(tenantId, sku, platform, listingId);
   }
@@ -48,7 +48,7 @@ export async function saveConnection(db, tenantId, platform, input) {
   if (!vaultReady()) {
     throw new InventoryError('VAULT_OFF', 'The server needs a MASTER_KEY before it can save credentials.');
   }
-  const previous = loadFields(db, tenantId, platform) ?? {};
+  const previous = (await loadFields(db, tenantId, platform)) ?? {};
   const merged = {};
   for (const f of def.fields) {
     const typed = typeof input[f.name] === 'string' ? input[f.name].trim() : '';
@@ -68,7 +68,7 @@ export async function saveConnection(db, tenantId, platform, input) {
   const result = await testConnection(platform, fields);
   const matched = result.ok ? await matchStoreIds(db, tenantId, platform, fields) : 0;
   const detail = withMatches(result.detail, matched);
-  db.prepare(`INSERT INTO connections (tenant_id, platform, status, secret_blob, public_json, detail, tested_at, updated_at)
+  await db.prepare(`INSERT INTO connections (tenant_id, platform, status, secret_blob, public_json, detail, tested_at, updated_at)
               VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
               ON CONFLICT(tenant_id, platform) DO UPDATE SET
                 status = excluded.status, secret_blob = excluded.secret_blob, public_json = excluded.public_json,
@@ -82,32 +82,32 @@ export async function saveConnection(db, tenantId, platform, input) {
       detail,
     );
 
-  if (result.ok && SKU_LINKED.includes(platform)) linkSkusToChannel(db, tenantId, platform);
+  if (result.ok && SKU_LINKED.includes(platform)) await linkSkusToChannel(db, tenantId, platform);
   return listOne(db, tenantId, platform);
 }
 
 export async function retestConnection(db, tenantId, platform) {
-  const fields = loadFields(db, tenantId, platform);
+  const fields = await loadFields(db, tenantId, platform);
   if (!fields) throw new InventoryError('NOT_FOUND', `Connect ${CONNECTORS[platform].label} first`);
   const result = await testConnection(platform, fields);
   const matched = result.ok ? await matchStoreIds(db, tenantId, platform, fields) : 0;
   const detail = withMatches(result.detail, matched);
-  db.prepare(`UPDATE connections SET status = ?, detail = ?, tested_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+  await db.prepare(`UPDATE connections SET status = ?, detail = ?, tested_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
               WHERE tenant_id = ? AND platform = ?`)
     .run(result.ok ? 'CONNECTED' : 'ERROR', detail, tenantId, platform);
   return listOne(db, tenantId, platform);
 }
 
-export function removeConnection(db, tenantId, platform) {
-  db.prepare('DELETE FROM connections WHERE tenant_id = ? AND platform = ?').run(tenantId, platform);
+export async function removeConnection(db, tenantId, platform) {
+  await db.prepare('DELETE FROM connections WHERE tenant_id = ? AND platform = ?').run(tenantId, platform);
 }
 
 // Lists a newly published product on the seller's Shopify store, when Shopify is connected.
 // The product is already saved, so a failure is reported back and does not undo the publish.
 export async function listOnShopify(db, tenantId, product) {
-  const row = db.prepare("SELECT status FROM connections WHERE tenant_id = ? AND platform = 'SHOPIFY'").get(tenantId);
+  const row = await db.prepare("SELECT status FROM connections WHERE tenant_id = ? AND platform = 'SHOPIFY'").get(tenantId);
   if (row?.status !== 'CONNECTED') return null;
-  const fields = loadFields(db, tenantId, 'SHOPIFY');
+  const fields = await loadFields(db, tenantId, 'SHOPIFY');
   if (!fields) return null;
 
   const base = (process.env.PUBLIC_BASE_URL || '').replace(/\/$/, '');
@@ -130,7 +130,7 @@ export async function listOnShopify(db, tenantId, product) {
       synced = false;
     }
     if (!synced) failed += 1;
-    db.prepare(`INSERT INTO channel_mappings (tenant_id, sku, platform, platform_listing_id, sync_status, last_pushed_qty)
+    await db.prepare(`INSERT INTO channel_mappings (tenant_id, sku, platform, platform_listing_id, sync_status, last_pushed_qty)
                 VALUES (?, ?, 'SHOPIFY', ?, ?, ?)
                 ON CONFLICT(tenant_id, sku, platform) DO UPDATE SET platform_listing_id = excluded.platform_listing_id,
                   sync_status = excluded.sync_status, last_pushed_qty = excluded.last_pushed_qty, updated_at = CURRENT_TIMESTAMP`)
@@ -142,8 +142,10 @@ export async function listOnShopify(db, tenantId, product) {
   return { ok: true, detail: `Listed ${count} on Shopify.` };
 }
 
-export function listConnections(db, tenantId) {
-  return Object.keys(CONNECTORS).map((platform) => listOne(db, tenantId, platform));
+export async function listConnections(db, tenantId) {
+  const out = [];
+  for (const platform of Object.keys(CONNECTORS)) out.push(await listOne(db, tenantId, platform));
+  return out;
 }
 
 export function listDemoPushes(db, tenantId) {
@@ -151,9 +153,9 @@ export function listDemoPushes(db, tenantId) {
 }
 
 // Used by the outbox. Reads keys only at push time and never returns them.
-export function pushForTenant(db, tenantId, platform, args) {
-  const fields = loadFields(db, tenantId, platform);
-  if (!fields) return Promise.resolve({ ok: false, skipped: true, error: `Connect ${CONNECTORS[platform].label} to send stock` });
+export async function pushForTenant(db, tenantId, platform, args) {
+  const fields = await loadFields(db, tenantId, platform);
+  if (!fields) return { ok: false, skipped: true, error: `Connect ${CONNECTORS[platform].label} to send stock` };
   return pushOne(platform, fields, args, { db, tenantId });
 }
 
@@ -166,9 +168,9 @@ function publicValues(def, fields) {
   return out;
 }
 
-function listOne(db, tenantId, platform) {
+async function listOne(db, tenantId, platform) {
   const def = CONNECTORS[platform];
-  const row = db.prepare('SELECT status, detail, tested_at, public_json FROM connections WHERE tenant_id = ? AND platform = ?').get(tenantId, platform);
+  const row = await db.prepare('SELECT status, detail, tested_at, public_json FROM connections WHERE tenant_id = ? AND platform = ?').get(tenantId, platform);
   return {
     platform,
     label: def.label,

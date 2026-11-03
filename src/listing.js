@@ -122,17 +122,17 @@ export function parseAnswerRegex(text) {
   return out;
 }
 
-export function createDraft(db, tenantId, analysis, imagePath = null) {
+export async function createDraft(db, tenantId, analysis, imagePath = null) {
   const draft = normalizeAnalysis(analysis);
   draft.photos = imagePath ? [newPhoto(imagePath, 'upload')] : [];
   const id = randomUUID();
-  db.prepare('INSERT INTO listing_drafts (id, tenant_id, status, image_path, draft_json) VALUES (?, ?, ?, ?, ?)')
+  await db.prepare('INSERT INTO listing_drafts (id, tenant_id, status, image_path, draft_json) VALUES (?, ?, ?, ?, ?)')
     .run(id, tenantId, 'NEEDS_INFO', imagePath, JSON.stringify(draft));
   return draftView(id, draft);
 }
 
-export function getDraft(db, tenantId, id) {
-  const row = loadRow(db, tenantId, id);
+export async function getDraft(db, tenantId, id) {
+  const row = await loadRow(db, tenantId, id);
   return draftView(id, loadDraft(row));
 }
 
@@ -140,7 +140,7 @@ export function getDraft(db, tenantId, id) {
 // `{ image_mode: 'ORIGINAL' | 'STUDIO' }`. A STUDIO request generates the
 // cleaned photo on first use.
 export async function updateDraft(db, tenantId, id, input) {
-  const row = loadRow(db, tenantId, id);
+  const row = await loadRow(db, tenantId, id);
   const draft = loadDraft(row);
   let parsed = input.answers ?? {};
   let parser = 'form';
@@ -165,7 +165,7 @@ export async function updateDraft(db, tenantId, id, input) {
   if (input.fields) applyFields(draft, input.fields);
   if (input.image_mode) await applyModeToAll(draft, input.image_mode);
   if (input.photo_mode) await applyPhotoMode(draft, Number(input.photo_mode.index), input.photo_mode.mode);
-  saveDraft(db, tenantId, id, draft);
+  await saveDraft(db, tenantId, id, draft);
   return { ...draftView(id, draft), parser, parser_error: parserError };
 }
 
@@ -257,14 +257,14 @@ async function applyModeToAll(draft, mode) {
   for (let i = 0; i < draft.photos.length; i++) await applyPhotoMode(draft, i, mode);
 }
 
-export function publishDraft(db, tenantId, id) {
-  const row = loadRow(db, tenantId, id);
+export async function publishDraft(db, tenantId, id) {
+  const row = await loadRow(db, tenantId, id);
   const draft = loadDraft(row);
   const missing = missingSlots(draft);
   if (missing.length) throw new InventoryError('NEEDS_INFO', questionFor(missing));
 
   const { masterSku, variants } = buildVariants(draft);
-  const product = createProduct(db, tenantId, {
+  const product = await createProduct(db, tenantId, {
     master_sku: masterSku,
     title: draft.title,
     category: draft.category,
@@ -289,13 +289,13 @@ export function publishDraft(db, tenantId, id) {
     }),
     variants,
   });
-  db.prepare("UPDATE listing_drafts SET status = 'PUBLISHED', updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(id);
+  await db.prepare("UPDATE listing_drafts SET status = 'PUBLISHED', updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(id);
   return product;
 }
 
 // Which photo a seller sees for a draft: their chosen version, or the original.
-export function mediaName(db, tenantId, id, variant = 'auto') {
-  const draft = loadDraft(loadRow(db, tenantId, id));
+export async function mediaName(db, tenantId, id, variant = 'auto') {
+  const draft = loadDraft(await loadRow(db, tenantId, id));
   if (variant === 'auto') {
     const first = draft.photos[0];
     return first ? fileOf(first, chosenKind(first)) : null;
@@ -306,8 +306,8 @@ export function mediaName(db, tenantId, id, variant = 'auto') {
 
 // Used by the signed public media route. The HMAC check happens before this
 // is called, so no tenant lookup is needed here.
-export function publicMedia(db, id, variant) {
-  const row = db.prepare('SELECT * FROM listing_drafts WHERE id = ?').get(id);
+export async function publicMedia(db, id, variant) {
+  const row = await db.prepare('SELECT * FROM listing_drafts WHERE id = ?').get(id);
   if (!row) return null;
   const { index, kind } = parseVariant(variant);
   return fileOf(loadDraft(row).photos[index], kind);
@@ -354,8 +354,8 @@ function draftView(id, draft) {
   return { id, draft, missing, question: questionFor(missing) };
 }
 
-function loadRow(db, tenantId, id) {
-  const row = db.prepare('SELECT * FROM listing_drafts WHERE id = ? AND tenant_id = ?').get(id, tenantId);
+async function loadRow(db, tenantId, id) {
+  const row = await db.prepare('SELECT * FROM listing_drafts WHERE id = ? AND tenant_id = ?').get(id, tenantId);
   if (!row) throw new InventoryError('NOT_FOUND', `No draft ${id}`);
   return row;
 }
@@ -363,8 +363,8 @@ function loadRow(db, tenantId, id) {
 export const MAX_PHOTOS = 8;
 
 // Adds a photo to a draft. `front` puts it first, so it becomes the main image.
-export function addPhoto(db, tenantId, id, { buffer, mime, source = 'upload', front = false }) {
-  const row = loadRow(db, tenantId, id);
+export async function addPhoto(db, tenantId, id, { buffer, mime, source = 'upload', front = false }) {
+  const row = await loadRow(db, tenantId, id);
   const draft = loadDraft(row);
   if (draft.photos.length >= MAX_PHOTOS) {
     throw new InventoryError('TOO_MANY_PHOTOS', `A listing holds up to ${MAX_PHOTOS} photos`);
@@ -372,29 +372,29 @@ export function addPhoto(db, tenantId, id, { buffer, mime, source = 'upload', fr
   const photo = newPhoto(storeImage(buffer, mime), source);
   if (front) draft.photos.unshift(photo);
   else draft.photos.push(photo);
-  saveDraft(db, tenantId, id, draft);
+  await saveDraft(db, tenantId, id, draft);
   return draftView(id, draft);
 }
 
 // Swaps in a photo the seller has edited. If they chose the white version, it is made again.
 export async function replacePhoto(db, tenantId, id, index, { buffer, mime }) {
-  const row = loadRow(db, tenantId, id);
+  const row = await loadRow(db, tenantId, id);
   const draft = loadDraft(row);
   const photo = draft.photos[index];
   if (!photo) throw new InventoryError('NOT_FOUND', `No photo ${index}`);
   const wasStudio = photo.mode === 'STUDIO';
   Object.assign(photo, { original: storeImage(buffer, mime), enhanced: null, method: null, mode: 'ORIGINAL', source: 'edited' });
   if (wasStudio) await applyPhotoMode(draft, index, 'STUDIO');
-  saveDraft(db, tenantId, id, draft);
+  await saveDraft(db, tenantId, id, draft);
   return draftView(id, draft);
 }
 
-export function removePhoto(db, tenantId, id, index) {
-  const row = loadRow(db, tenantId, id);
+export async function removePhoto(db, tenantId, id, index) {
+  const row = await loadRow(db, tenantId, id);
   const draft = loadDraft(row);
   if (!draft.photos[index]) throw new InventoryError('NOT_FOUND', `No photo ${index}`);
   draft.photos.splice(index, 1);
-  saveDraft(db, tenantId, id, draft);
+  await saveDraft(db, tenantId, id, draft);
   return draftView(id, draft);
 }
 
@@ -404,7 +404,7 @@ export function wantsNotePhoto(note) {
   return NOTE_PHOTO.test(String(note ?? ''));
 }
 
-function saveDraft(db, tenantId, id, draft) {
-  db.prepare('UPDATE listing_drafts SET draft_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND tenant_id = ?')
+async function saveDraft(db, tenantId, id, draft) {
+  await db.prepare('UPDATE listing_drafts SET draft_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND tenant_id = ?')
     .run(JSON.stringify(draft), id, tenantId);
 }

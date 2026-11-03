@@ -23,7 +23,7 @@ const auth = () => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'applica
 const call = (path, options = {}) => fetch(`${base}${path}`, options);
 
 before(async () => {
-  server = createApp(openDb(':memory:'));
+  server = createApp(await openDb('pglite:memory'));
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   base = `http://127.0.0.1:${server.address().port}`;
   const res = await call('/api/tenants', {

@@ -15,15 +15,14 @@ const MARKETPLACES = new Set(['AMAZON_IN', 'FLIPKART', 'MEESHO', 'SHOPIFY', 'WOO
 export const SKU_LINKED = ['AMAZON_IN', 'FLIPKART', 'MEESHO', 'CUSTOM_SITE', 'DEMO'];
 const MAX_PUSH_ATTEMPTS = 5;
 
-export function createProduct(db, tenantId, input) {
-  return tx(db, () => {
-    const exists = db
-      .prepare('SELECT id FROM products WHERE tenant_id = ? AND master_sku = ?')
+export async function createProduct(db, tenantId, input) {
+  return tx(db, async () => {
+    const exists = await db.prepare('SELECT id FROM products WHERE tenant_id = ? AND master_sku = ?')
       .get(tenantId, input.master_sku);
     if (exists) throw new InventoryError('DUPLICATE', `Product ${input.master_sku} already exists`);
 
     const id = randomUUID();
-    db.prepare(`INSERT INTO products (id, tenant_id, master_sku, title, category, hsn_code, gst_percent, attributes_json, media_urls_json)
+    await db.prepare(`INSERT INTO products (id, tenant_id, master_sku, title, category, hsn_code, gst_percent, attributes_json, media_urls_json)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
       id,
       tenantId,
@@ -36,23 +35,22 @@ export function createProduct(db, tenantId, input) {
       JSON.stringify(input.media_urls ?? []),
     );
 
-    insertVariants(db, tenantId, id, input.variants);
-    linkNewSkus(db, tenantId, (input.variants ?? []).map((v) => v.sku));
+    await insertVariants(db, tenantId, id, input.variants);
+    await linkNewSkus(db, tenantId, (input.variants ?? []).map((v) => v.sku));
     return getProduct(db, tenantId, input.master_sku);
   });
 }
 
 // Creates the product, or updates it in place. Existing variants keep their
 // stock, so the MCP upsert tool can't reset a count by accident.
-export function upsertProduct(db, tenantId, input) {
-  const existing = db
-    .prepare('SELECT id, attributes_json FROM products WHERE tenant_id = ? AND master_sku = ?')
+export async function upsertProduct(db, tenantId, input) {
+  const existing = await db.prepare('SELECT id, attributes_json FROM products WHERE tenant_id = ? AND master_sku = ?')
     .get(tenantId, input.master_sku);
   if (!existing) return createProduct(db, tenantId, input);
 
-  return tx(db, () => {
+  return tx(db, async () => {
     const attributes = { ...JSON.parse(existing.attributes_json), ...(input.attributes ?? {}) };
-    db.prepare(`UPDATE products SET title = ?, category = COALESCE(?, category), hsn_code = COALESCE(?, hsn_code),
+    await db.prepare(`UPDATE products SET title = ?, category = COALESCE(?, category), hsn_code = COALESCE(?, hsn_code),
                 gst_percent = COALESCE(?, gst_percent), attributes_json = ?,
                 media_urls_json = COALESCE(?, media_urls_json), updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?`).run(
@@ -65,18 +63,18 @@ export function upsertProduct(db, tenantId, input) {
       existing.id,
     );
     const known = new Set(
-      db.prepare('SELECT sku FROM variants WHERE tenant_id = ? AND product_id = ?').all(tenantId, existing.id).map((r) => r.sku),
+      (await db.prepare('SELECT sku FROM variants WHERE tenant_id = ? AND product_id = ?').all(tenantId, existing.id)).map((r) => r.sku),
     );
     const fresh = (input.variants ?? []).filter((v) => !known.has(v.sku));
-    insertVariants(db, tenantId, existing.id, fresh);
-    linkNewSkus(db, tenantId, fresh.map((v) => v.sku));
+    await insertVariants(db, tenantId, existing.id, fresh);
+    await linkNewSkus(db, tenantId, fresh.map((v) => v.sku));
     return getProduct(db, tenantId, input.master_sku);
   });
 }
 
-function insertVariants(db, tenantId, productId, variants = []) {
+async function insertVariants(db, tenantId, productId, variants = []) {
   for (const v of variants) {
-    db.prepare(`INSERT INTO variants (tenant_id, sku, product_id, size, color, mrp, selling_price, stock_qty)
+    await db.prepare(`INSERT INTO variants (tenant_id, sku, product_id, size, color, mrp, selling_price, stock_qty)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(
       tenantId,
       v.sku,
@@ -90,24 +88,21 @@ function insertVariants(db, tenantId, productId, variants = []) {
   }
 }
 
-export function getProduct(db, tenantId, masterSku) {
-  const p = db
-    .prepare('SELECT * FROM products WHERE tenant_id = ? AND master_sku = ?')
-    .get(tenantId, masterSku);
+export async function getProduct(db, tenantId, masterSku) {
+  const p = await db.prepare('SELECT * FROM products WHERE tenant_id = ? AND master_sku = ?').get(tenantId, masterSku);
   if (!p) return null;
   return formatProduct(db, tenantId, p);
 }
 
-export function listProducts(db, tenantId) {
-  return db
-    .prepare('SELECT * FROM products WHERE tenant_id = ? ORDER BY created_at DESC')
-    .all(tenantId)
-    .map((p) => formatProduct(db, tenantId, p));
+export async function listProducts(db, tenantId) {
+  const rows = await db.prepare('SELECT * FROM products WHERE tenant_id = ? ORDER BY created_at DESC').all(tenantId);
+  const out = [];
+  for (const p of rows) out.push(await formatProduct(db, tenantId, p));
+  return out;
 }
 
-function formatProduct(db, tenantId, p) {
-  const variants = db
-    .prepare('SELECT sku, size, color, mrp, selling_price, stock_qty FROM variants WHERE tenant_id = ? AND product_id = ? ORDER BY sku')
+async function formatProduct(db, tenantId, p) {
+  const variants = await db.prepare('SELECT sku, size, color, mrp, selling_price, stock_qty FROM variants WHERE tenant_id = ? AND product_id = ? ORDER BY sku')
     .all(tenantId, p.id);
   return {
     id: p.id,
@@ -122,34 +117,29 @@ function formatProduct(db, tenantId, p) {
   };
 }
 
-export function getStock(db, tenantId, sku) {
-  const row = db
-    .prepare(`SELECT v.sku, v.size, v.color, v.stock_qty, v.mrp, v.selling_price, p.master_sku, p.title
+export async function getStock(db, tenantId, sku) {
+  const row = await db.prepare(`SELECT v.sku, v.size, v.color, v.stock_qty, v.mrp, v.selling_price, p.master_sku, p.title
               FROM variants v JOIN products p ON p.id = v.product_id
-              WHERE v.tenant_id = ? AND v.sku = ?`)
-    .get(tenantId, sku);
+              WHERE v.tenant_id = ? AND v.sku = ?`).get(tenantId, sku);
   if (!row) throw new InventoryError('NOT_FOUND', `No SKU ${sku}`);
   return row;
 }
 
 // The one place stock changes. Every path (dashboard, MCP, WhatsApp, orders)
 // goes through here so the ledger and the outbox stay consistent.
-export function adjustStock(db, tenantId, sku, delta, opts = {}) {
+export async function adjustStock(db, tenantId, sku, delta, opts = {}) {
   const { reason = 'MANUAL', source = 'API', externalRef = null, allowNegative = false } = opts;
-  return tx(db, () => {
+  return tx(db, async () => {
     if (externalRef) {
-      const seen = db
-        .prepare('SELECT 1 FROM inventory_ledger WHERE tenant_id = ? AND source_platform = ? AND external_ref = ?')
+      const seen = await db.prepare('SELECT 1 FROM inventory_ledger WHERE tenant_id = ? AND source_platform = ? AND external_ref = ?')
         .get(tenantId, source, externalRef);
       if (seen) {
-        const now = getStock(db, tenantId, sku);
+        const now = await getStock(db, tenantId, sku);
         return { duplicate: true, sku, qty: now.stock_qty, oversold: now.stock_qty < 0, pushedTo: [] };
       }
     }
 
-    const current = db
-      .prepare('SELECT stock_qty, version FROM variants WHERE tenant_id = ? AND sku = ?')
-      .get(tenantId, sku);
+    const current = await db.prepare('SELECT stock_qty, version FROM variants WHERE tenant_id = ? AND sku = ?').get(tenantId, sku);
     if (!current) throw new InventoryError('NOT_FOUND', `No SKU ${sku}`);
 
     const next = current.stock_qty + delta;
@@ -157,20 +147,18 @@ export function adjustStock(db, tenantId, sku, delta, opts = {}) {
       throw new InventoryError('INSUFFICIENT_STOCK', `Only ${current.stock_qty} left for ${sku}`);
     }
 
-    const res = db
-      .prepare('UPDATE variants SET stock_qty = ?, version = version + 1, updated_at = CURRENT_TIMESTAMP WHERE tenant_id = ? AND sku = ? AND version = ?')
+    const res = await db.prepare('UPDATE variants SET stock_qty = ?, version = version + 1, updated_at = CURRENT_TIMESTAMP WHERE tenant_id = ? AND sku = ? AND version = ?')
       .run(next, tenantId, sku, current.version);
     if (res.changes !== 1) throw new InventoryError('CONFLICT', `Stock for ${sku} changed, retry`);
 
-    db.prepare(`INSERT INTO inventory_ledger (id, tenant_id, sku, delta, qty_after, source_platform, external_ref, reason)
+    await db.prepare(`INSERT INTO inventory_ledger (id, tenant_id, sku, delta, qty_after, source_platform, external_ref, reason)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(randomUUID(), tenantId, sku, delta, next, source, externalRef, reason);
 
     // Push the new absolute quantity to every linked marketplace except the
     // one the sale came from, since that platform already decremented itself.
-    const channels = db
-      .prepare('SELECT platform FROM channel_mappings WHERE tenant_id = ? AND sku = ? AND platform <> ?')
+    const channels = await db.prepare('SELECT platform FROM channel_mappings WHERE tenant_id = ? AND sku = ? AND platform <> ?')
       .all(tenantId, sku, source);
-    for (const ch of channels) enqueuePush(db, tenantId, sku, ch.platform, next);
+    for (const ch of channels) await enqueuePush(db, tenantId, sku, ch.platform, next);
 
     return {
       duplicate: false,
@@ -183,64 +171,58 @@ export function adjustStock(db, tenantId, sku, delta, opts = {}) {
   });
 }
 
-function enqueuePush(db, tenantId, sku, platform, qty) {
-  db.prepare(`INSERT INTO outbox (id, tenant_id, sku, platform, qty, status, attempts)
+async function enqueuePush(db, tenantId, sku, platform, qty) {
+  await db.prepare(`INSERT INTO outbox (id, tenant_id, sku, platform, qty, status, attempts)
               VALUES (?, ?, ?, ?, ?, 'PENDING', 0)
               ON CONFLICT(id) DO UPDATE SET qty = excluded.qty, status = 'PENDING', attempts = 0, updated_at = CURRENT_TIMESTAMP`)
     .run(`${tenantId}|${sku}|${platform}`, tenantId, sku, platform, qty);
 }
 
-function linkRow(db, tenantId, sku, platform, listingId) {
-  db.prepare(`INSERT INTO channel_mappings (tenant_id, sku, platform, platform_listing_id) VALUES (?, ?, ?, ?)
+async function linkRow(db, tenantId, sku, platform, listingId) {
+  await db.prepare(`INSERT INTO channel_mappings (tenant_id, sku, platform, platform_listing_id) VALUES (?, ?, ?, ?)
               ON CONFLICT(tenant_id, sku, platform) DO NOTHING`).run(tenantId, sku, platform, listingId);
 }
 
 // Called when a seller connects a SKU-matched channel: links every existing SKU.
-export function linkSkusToChannel(db, tenantId, platform) {
-  for (const { sku } of db.prepare('SELECT sku FROM variants WHERE tenant_id = ?').all(tenantId)) {
-    linkRow(db, tenantId, sku, platform, sku);
+export async function linkSkusToChannel(db, tenantId, platform) {
+  for (const { sku } of await db.prepare('SELECT sku FROM variants WHERE tenant_id = ?').all(tenantId)) {
+    await linkRow(db, tenantId, sku, platform, sku);
   }
 }
 
 // Called when products are created: links new SKUs to channels already connected.
-export function linkNewSkus(db, tenantId, skus) {
-  const connected = db
-    .prepare("SELECT platform FROM connections WHERE tenant_id = ? AND status = 'CONNECTED'")
-    .all(tenantId)
+export async function linkNewSkus(db, tenantId, skus) {
+  const connected = (await db.prepare("SELECT platform FROM connections WHERE tenant_id = ? AND status = 'CONNECTED'").all(tenantId))
     .map((r) => r.platform)
     .filter((p) => SKU_LINKED.includes(p));
   for (const platform of connected) {
-    for (const sku of skus) linkRow(db, tenantId, sku, platform, sku);
+    for (const sku of skus) await linkRow(db, tenantId, sku, platform, sku);
   }
 }
 
-export function mapChannel(db, tenantId, sku, platform, platformListingId) {
+export async function mapChannel(db, tenantId, sku, platform, platformListingId) {
   if (!MARKETPLACES.has(platform)) {
     throw new InventoryError('BAD_PLATFORM', `Unknown platform ${platform}`);
   }
-  getStock(db, tenantId, sku);
-  db.prepare(`INSERT INTO channel_mappings (tenant_id, sku, platform, platform_listing_id)
+  await getStock(db, tenantId, sku);
+  await db.prepare(`INSERT INTO channel_mappings (tenant_id, sku, platform, platform_listing_id)
               VALUES (?, ?, ?, ?)
               ON CONFLICT(tenant_id, sku, platform) DO UPDATE SET platform_listing_id = excluded.platform_listing_id, updated_at = CURRENT_TIMESTAMP`)
     .run(tenantId, sku, platform, platformListingId);
   return { sku, platform, platform_listing_id: platformListingId };
 }
 
-export function listLowStock(db, tenantId, threshold = 5) {
-  return db
-    .prepare(`SELECT sku, size, color, stock_qty FROM variants
-              WHERE tenant_id = ? AND stock_qty <= ? ORDER BY stock_qty ASC, sku ASC`)
-    .all(tenantId, threshold);
+export async function listLowStock(db, tenantId, threshold = 5) {
+  return db.prepare(`SELECT sku, size, color, stock_qty FROM variants
+              WHERE tenant_id = ? AND stock_qty <= ? ORDER BY stock_qty ASC, sku ASC`).all(tenantId, threshold);
 }
 
 // Runs queued channel pushes. `adapters[platform].pushStock` returns
 // { ok, skipped, error }. Platforms with no adapter or no credentials are
 // marked NOT_CONFIGURED so the dashboard shows exactly what did not sync.
 export async function drainOutbox(db, tenantId, adapters, limit = 50) {
-  const rows = db
-    .prepare(`SELECT id, sku, platform, qty, attempts FROM outbox
-              WHERE tenant_id = ? AND status = 'PENDING' ORDER BY updated_at LIMIT ?`)
-    .all(tenantId, limit);
+  const rows = await db.prepare(`SELECT id, sku, platform, qty, attempts FROM outbox
+              WHERE tenant_id = ? AND status = 'PENDING' ORDER BY updated_at LIMIT ?`).all(tenantId, limit);
 
   const results = [];
   for (const row of rows) {
@@ -271,9 +253,9 @@ export async function drainOutbox(db, tenantId, adapters, limit = 50) {
       sync = 'PENDING';
     }
 
-    db.prepare('UPDATE outbox SET status = ?, attempts = ?, last_error = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+    await db.prepare('UPDATE outbox SET status = ?, attempts = ?, last_error = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
       .run(status, attempts, outcome.error ?? null, row.id);
-    db.prepare(`UPDATE channel_mappings SET sync_status = ?, last_pushed_qty = ?, updated_at = CURRENT_TIMESTAMP
+    await db.prepare(`UPDATE channel_mappings SET sync_status = ?, last_pushed_qty = ?, updated_at = CURRENT_TIMESTAMP
                 WHERE tenant_id = ? AND sku = ? AND platform = ?`)
       .run(sync, row.qty, tenantId, row.sku, row.platform);
 
