@@ -1,126 +1,105 @@
----
-title: QuickListInventoryAI
-emoji: 🧾
-colorFrom: indigo
-colorTo: red
-sdk: docker
-app_port: 7860
-pinned: false
----
-
 # QuickListInventoryAI
 
-Snap a product photo. QuickListInventoryAI writes the listing, keeps one stock count across every channel, and takes orders from the web, WhatsApp and connected stores.
+**Live app:** https://quicklist-inventory-ai.onrender.com
 
-**Built for the Meta Global AI Developer Hackathon** (problem statement: Build for Your World; Indie Developer track). Everything in this repository was written during the building period. It uses Muse Spark through the Meta Model API. The submission checklist and demo plan are in [docs/SUBMISSION.md](docs/SUBMISSION.md).
+Snap a product photo. QuickListInventoryAI writes the listing, publishes it to your stores and marketplaces, and keeps one stock count across every channel, so a sale on one channel updates all of them.
 
-## Run it on your computer
+The free hosting sleeps when it is idle, so the first visit can take up to a minute to load.
 
-You need Node.js 22.13 or newer (24 recommended). Node's built-in SQLite needs it.
+## What it does
+
+Small sellers often list the same product on Shopify, Amazon, Flipkart and Meesho, then update stock by hand after every sale. That leads to overselling and wasted time. QuickListInventoryAI does the work for them:
+
+1. **Snap.** Take a photo. The app reads it and writes the title, colour, bullet points, description, search terms, and HSN and GST suggestions.
+2. **Finish.** Add only what a photo can't show: sizes, stock and prices. Type them as one line in English, Hindi or Hinglish, or fill in the form.
+3. **Publish.** The product is created on Shopify with its photos, one variant per size and the stock for each. Other channels get the same stock.
+4. **Sell.** A sale on any channel lowers the one count. A WhatsApp message such as `sold 1 SKU` does the same. Every other channel is updated.
+
+## Features
+
+- **Photo to listing.** Meta's Muse Spark model reads the photo and writes the listing text.
+- **Photo tools.** Crop, rotate and brighten a photo. Switch a photo to a white background. Edit a photo with AI by typing the change you want, for example "soft grey studio backdrop". Make a mannequin or model photo from a note such as "put it on a mannequin".
+- **Several photos per listing.** Up to eight photos. Each one chooses its own version, as is or white background.
+- **Details in one line.** Type sizes, stock and prices in English, Hindi or Hinglish. The app fills in the form and shows the discount below MRP.
+- **One stock count.** Stock page with one row per SKU, +1, −1 and +10 buttons, low-stock and out-of-stock filters, and photos on each row.
+- **Shopify (live).** Connect your store with a client ID and secret from the Shopify Dev Dashboard. Each publish creates the product, its variants, the stock and the photos.
+- **Other marketplaces.** Amazon India and Flipkart stock sync through their APIs. Meesho uses a bulk sheet. WooCommerce and your own website are supported too.
+- **Orders.** Record a sale from any channel, and the stock updates everywhere. An order larger than the stock is flagged as oversold.
+- **WhatsApp.** Send a photo to list a product. Reply with `studio`, `original` or `yes`. Commands include `sold`, `restock`, `stock` and `low stock`.
+- **Listings readiness.** Each product is checked against each marketplace's basic requirements, and anything missing is shown.
+- **Sheets.** Download CSV listing sheets for Amazon, Flipkart, Meesho and Shopify.
+- **Connect marketplaces.** One page to connect, test and disconnect each channel. Keys are stored encrypted and are never shown again.
+- **API and MCP.** A REST API for your own tools, and an MCP endpoint with five inventory tools for AI agents.
+
+## Built with
+
+- **Meta Model API.** Muse Spark reads the photos and writes the listing text. Muse Image edits the photos for white backgrounds, AI edits and mannequin shots.
+- **Node.js** with no framework, and a plain JavaScript web app.
+- **Neon Postgres** in production. An in-process Postgres (PGlite) runs locally when no database URL is set.
+- **Shopify Admin API**, **WhatsApp Cloud API** and marketplace APIs.
+- **Render** for hosting.
+
+## Run it locally
+
+You need **Node.js 22 or newer**.
 
 ```bash
 npm install
+cp .env.example .env
+npm start
 ```
 
-Copy `.env.example` to `.env`. Then generate the two secrets. Run this twice, and paste one output into `MASTER_KEY` and the other into `MEDIA_SECRET`:
+On Windows, use `copy .env.example .env` instead of `cp`. Then open http://localhost:3000 and open a shop. The app shows your access token once, so save it.
+
+Generate the secrets in `.env` with:
 
 ```bash
 node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
 ```
 
-Start the app:
+| Variable | Needed for |
+| --- | --- |
+| `MASTER_KEY` | Encrypting the keys you save on the Connect marketplaces page. Required for those. |
+| `MEDIA_SECRET` | Signing public image links. Recommended. |
+| `META_API_KEY` | Photo reading and AI photo edits through the Meta Model API. |
+| `DATABASE_URL` | A Postgres URL. Leave it empty to use the local database. |
+| `PUBLIC_BASE_URL` | The public address of the app. Shopify and WhatsApp need it to reach your photos. |
+| `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_APP_SECRET` | The WhatsApp bot. |
 
-```bash
-npm start
-```
+Never commit `.env`. It is git-ignored.
 
-Open http://localhost:3000, open a shop, and save the token it shows. It is shown once.
-
-Run the checks:
+Run the tests and the build check:
 
 ```bash
 npm test
+npm run build
 ```
 
-## Set up the Meta key
+## Connect your marketplaces
 
-`npm start` reads `.env` automatically, so the key only has to live in that file.
+Open **Connect marketplaces** in the sidebar. Each channel has its own card.
 
-1. Open the Meta developer console at dev.meta.ai and go to **API keys**. The list shows a masked key. Meta shows the full key only when it is created. If you did not save it, select **Create API key**, name it `quicklist-inventory-ai`, and copy it straight away.
-2. In the project folder, copy `.env.example` to `.env`.
-3. Open `.env` in a text editor and set `META_API_KEY=` to the key, then save. Do not paste the key into chat, and do not commit `.env`. It is already git-ignored.
-4. Run `npm run check:meta`. It makes one tiny test call and prints the models your key can see. You want to see `Reply call worked.`
-5. If you get a 401, check for spaces around the key, or create a new key. If the model name is missing from the list, set `META_SPARK_MODEL` to a name from that list.
-6. Open **Billing** and **Usage** in the console after testing, so you can see what each call costs.
-
-Your $150 free credit is Meta Model API credit. While free credits are in use, Meta says your content may be used for product improvement. Before real sellers upload photos, decide whether that is acceptable. "Stop using free credits" switches to pay-as-you-go on the card on file, so only click it if you accept charges.
-
-## What you need to provide
-
-Never paste these into chat or WhatsApp. Put server values in the host's environment settings. Enter marketplace keys only on the **Settings → Stores and marketplaces** page.
-
-| Item | Where it goes | Needed for |
-| --- | --- | --- |
-| `MASTER_KEY` | server env | Saving any store or marketplace key. Required. |
-| `MEDIA_SECRET` | server env | Signing public image links. Recommended. |
-| `META_API_KEY` | server env | Reading photos (Muse Spark) and studio photos (Muse Image). Uses your free Meta credit. |
-| `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID` | server env | Replies on your business test number. |
-| `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_APP_SECRET` | server env | Verifying Meta's webhook and signatures. |
-| `PUBLIC_BASE_URL` | server env | Image links for marketplaces, and the WhatsApp webhook. Needs a public HTTPS address. |
-| Marketplace and store keys | Settings page in the app | Stock sync to Amazon, Flipkart, Meesho, Shopify, WooCommerce and your website. |
-
-## Testing the connections
-
-- **Demo marketplace:** no account needed. Connect it, then place a test order from the Orders page. Each stock push appears on the Settings page. Start here.
-- **Shopify:** create a free development store from the Dev stores page in the Shopify Dev Dashboard. Create an app there with product and inventory scopes, install it on the store, then paste the store domain, Client ID, Client secret and location ID. The app requests its own short-lived token.
-- **WooCommerce:** run WordPress with WooCommerce on your computer (for example with Local or Docker). Create Read/Write REST keys under WooCommerce → Settings → Advanced.
-- **My own website:** point it at a test receiver such as webhook.site. Pushes arrive signed with `X-QuickList-Signature`. Use test data only.
-- **Amazon India and Flipkart:** need developer and seller accounts. The Amazon request shapes come from the SP-API documentation and are untested against a live account. Check them in the Amazon sandbox before go-live.
-- **Meesho:** stock sync goes through the bulk sheet only. Meesho does not offer a stock API to new sellers.
-
-## WhatsApp test number
-
-1. In the Meta developer console, open your app and add the WhatsApp product. Copy the test number's **Phone number ID**. Create a system-user token and put it in `WHATSAPP_TOKEN`.
-2. Set the webhook URL to `https://<your-public-address>/webhooks/whatsapp`. Use `WHATSAPP_VERIFY_TOKEN` as the verify token, then subscribe to `messages`.
-3. The test number can only message numbers you have added as test recipients.
-4. To test locally, a free Cloudflare quick tunnel gives your localhost a public HTTPS address.
-5. Replies within 24 hours of a customer message are free. Messages outside that window need approved templates and can cost money.
-
-## Hosting
-
-The repo includes a `Dockerfile` that runs on any Docker host. The app listens on port 7860 by default, and the database is kept in `/data`.
-
-- **Hugging Face Spaces (free, no card):** create a Docker Space and push this repo. The free tier sleeps when idle and its disk resets on restart, so seller data is lost on each restart. Fine for a demo, not for real sellers.
-- **A host with a persistent volume:** needed for real data. Use the free credit you were given on a platform that offers a volume, and mount it at `/data`. Tell me which provider issued the credit and I will check its volume and pricing rules.
-
-The hackathon's official rules were not visible to me, so I could not confirm any hosting requirements. Check the official rules page before submitting.
+- **Shopify:** in the Shopify Dev Dashboard, create an app with product and inventory access, install it on your store, then enter the store domain, the Client ID, the Client secret and the location ID.
+- **Meesho:** enter your supplier ID. Stock updates use the bulk sheet until Meesho opens its API.
+- **Amazon India and Flipkart:** enter the keys from your seller developer account.
+- **WooCommerce and your own website:** enter the site address and the keys. Pushes to a website are signed with `X-QuickList-Signature`.
 
 ## Security
 
-- Seller keys are encrypted with AES-256-GCM before they are stored. The key lives only in `MASTER_KEY`. If you lose it, sellers must re-enter their keys.
+- Marketplace and store keys are encrypted with AES-256-GCM before they are stored. The key lives only in `MASTER_KEY`.
 - Keys are never sent back to the browser. The screen shows only the last four characters.
-- Addresses sellers type (store domain, site address, webhook URL) must use https and must not point at private networks. Redirects are refused.
-- Serve the app over HTTPS in production. Rotate any key that was ever pasted into a chat.
+- Passwords are hashed with scrypt. Sign-in tokens are stored only as hashes.
+- Public image links are signed, so no one can guess another seller's photo.
+- Addresses sellers type must use HTTPS and must not point at private networks.
 
 ## Known limits
 
-- Live stock sync to Amazon, Flipkart, Shopify and WooCommerce is not yet verified against live accounts.
-- Shopify and WooCommerce need each SKU's variant or product ID, linked with `POST /api/channels`. There is no screen for this yet.
-- Inbound orders from Shopify or Amazon need a relay that signs and forwards them. Only the signed-token path is built.
-- Voice notes are not supported. Muse Image studio edits are unverified, and the local cleanup handles plain backgrounds only.
-- Connecting by OAuth (install-with-one-click) is not built. Sellers paste keys.
-- SQLite on one server suits a demo, not many sellers at once.
+- Live stock sync to Amazon India, Flipkart and WooCommerce has not been checked against live accounts.
+- An AI photo edit takes about 15 to 30 seconds.
+- The local cleanup for white backgrounds works only on plain backgrounds. Use the Meta key for busy ones.
+- Connecting by one-click install (OAuth) is not built. Sellers paste their keys.
+- Shopify product photos are sent from `PUBLIC_BASE_URL`. If that is not set, the product is created without photos, and the publish screen says so.
 
-## API overview
+## Hackathon
 
-All `/api` routes need `Authorization: Bearer <token>`. The MCP endpoint is at `/mcp` and exposes five inventory tools.
-
-- `POST /api/tenants`: open a shop (returns the token once)
-- `POST /api/listings/drafts`: upload a photo (`Content-Type: image/*`)
-- `PATCH /api/listings/drafts/:id`: edit fields, answers, free text or `image_mode`
-- `POST /api/listings/drafts/:id/publish`: create the product and SKUs
-- `GET /api/products`, `GET /api/stock/:sku`, `POST /api/stock/:sku/adjust`
-- `POST /api/orders/:platform`: `AMAZON_IN`, `FLIPKART`, `MEESHO`, `SHOPIFY`, `WOOCOMMERCE`, `CUSTOM_SITE`, `DEMO`
-- `GET /api/connections`, `PUT /api/connections/:platform`, `POST /api/connections/:platform/test`, `DELETE /api/connections/:platform`
-- `GET /api/exports/:platform.csv`, `GET /api/readiness/:platform`
-- `POST /api/whatsapp/simulate`: run the WhatsApp flow without Meta, for testing
+Built for the Meta Global AI Developer Hackathon, Indie Developer track.
