@@ -551,11 +551,6 @@ function photoStripHTML(v, busy) {
           <button type="button" class="btn btn-quiet btn-small" data-action="photo-ai" data-index="${i}" aria-expanded="${state.snap.aiOpen === i}" ${disabled}>AI edit</button>
           <button type="button" class="btn btn-quiet btn-small" data-action="photo-remove" data-index="${i}" ${disabled}>Remove</button>
         </div>
-        ${state.snap.aiOpen === i ? `
-        <form class="ai-edit" data-index="${i}" aria-label="AI edit for ${label}">
-          <input class="input" name="instruction" maxlength="300" placeholder="for example: plain light grey backdrop" aria-label="What to change in this photo" ${disabled}>
-          <button type="submit" class="btn btn-indigo btn-small" ${disabled}>Apply</button>
-        </form>` : ''}
       </figure>`;
   }).join('');
   const addButton = photos.length < MAX_PHOTOS_UI
@@ -566,8 +561,17 @@ function photoStripHTML(v, busy) {
     : busy === 'ai'
       ? '<p class="mode-note" role="status"><span class="spinner" aria-hidden="true"></span> Editing the photo with AI. This can take 20 to 30 seconds.</p>'
       : `<p class="mode-note" role="status">${esc(photoNote(photos))}</p>`;
+  // The AI edit box sits under the photos, full width, so it never overlaps a photo card.
+  const ai = state.snap.aiOpen;
+  const aiForm = ai != null && photos[ai]
+    ? `<form class="ai-edit" data-index="${ai}" aria-label="AI edit for photo ${ai + 1}">
+        <input class="input" name="instruction" maxlength="300" placeholder="Describe the change, for example: plain light grey studio backdrop" aria-label="What to change in photo ${ai + 1}" ${disabled}>
+        <button type="submit" class="btn btn-indigo btn-small" ${disabled}>Apply to photo ${ai + 1}</button>
+      </form>`
+    : '';
   return `
     <section class="photo-strip" aria-label="Photos on the listing">${cards}${addButton}</section>
+    ${aiForm}
     ${note}
     <input type="file" id="file" accept="image/jpeg,image/png,image/webp" multiple hidden>`;
 }
