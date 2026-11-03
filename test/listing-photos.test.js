@@ -12,7 +12,7 @@ delete process.env.META_API_KEY;
 
 const { openDb } = await import('../src/db.js');
 const { createTenant } = await import('../src/auth.js');
-const { addPhoto, createDraft, getDraft, publicMedia, publishDraft, removePhoto, replacePhoto, updateDraft, wantsNotePhoto } = await import('../src/listing.js');
+const { addPhoto, aiEditPhoto, createDraft, getDraft, publicMedia, publishDraft, removePhoto, replacePhoto, updateDraft, wantsNotePhoto } = await import('../src/listing.js');
 const { readImage, storeImage, verifyMedia } = await import('../src/uploads.js');
 
 const blankPng = () => sharp({ create: { width: 200, height: 200, channels: 3, background: '#f2f2f2' } }).png().toBuffer();
@@ -34,6 +34,14 @@ test('a stored photo is read back from the database, and an unknown name finds n
   assert.deepEqual(Buffer.from(back.buffer), png);
   assert.equal(await readImage(db, 'missing-photo.png'), null);
   assert.equal(await readImage(db, '../secret.png'), null);
+});
+
+test('AI photo editing says why it cannot run without the Meta key, and refuses an empty instruction', async () => {
+  const { db, tenantId } = await freshShop();
+  const png = await blankPng();
+  const draft = await createDraft(db, tenantId, { title: 'Plain tee', category: 'GENERIC' }, await storeImage(db, png, 'image/png'));
+  await assert.rejects(aiEditPhoto(db, tenantId, draft.id, 0, 'plain light grey backdrop'), (err) => err.code === 'AI_OFF');
+  await assert.rejects(aiEditPhoto(db, tenantId, draft.id, 0, '   '), (err) => err.code === 'BAD_INPUT');
 });
 
 test('a note asking for a mannequin or model shot is recognised, and a plain description is not', () => {

@@ -16,6 +16,14 @@ export async function makeNotePhoto(image, note) {
   return sharp(made.buffer).rotate().jpeg({ quality: 92 }).toBuffer();
 }
 
+// Edits a photo the way the seller describes it, such as "plain light grey backdrop".
+// The product itself is kept as it is.
+export async function editPhoto(image, instruction) {
+  if (!metaEnabled()) throw new Error('AI photo editing needs the Meta key on the server.');
+  const made = await editImage(image, `${instruction.trim()}. ${NOTE_SUFFIX}`);
+  return sharp(made.buffer).rotate().jpeg({ quality: 92 }).toBuffer();
+}
+
 // Returns a marketplace-style main image: square, white background, product centred.
 // `method` says how it was made, so the seller knows whether the background was
 // fully replaced ('muse-image') or only cleaned locally ('mask' or 'canvas').

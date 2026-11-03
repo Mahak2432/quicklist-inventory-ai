@@ -414,7 +414,7 @@ async function seedDemoShop() {
 
     setSeedStatus('Done. Opening your stock.');
     await enterApp('#/stock');
-    toast('Demo shop ready. Your token is in Settings if you want to use it on another device.');
+    toast('Demo shop ready. Your token is in Connect marketplaces if you want to use it on another device.');
   } catch (err) {
     setSeedStatus(`Could not finish the demo: ${err.message}`);
     btn.disabled = false;
@@ -537,7 +537,7 @@ function photoStripHTML(v, busy) {
   const cards = photos.map((p, i) => {
     const kind = p.mode === 'STUDIO' && p.enhanced ? 'enhanced' : 'original';
     const label = i === 0 ? 'Main photo' : `Photo ${i + 1}`;
-    const from = p.source === 'generated' ? 'Made from your note' : p.source === 'edited' ? 'Edited' : '';
+    const from = p.source === 'generated' ? 'Made from your note' : p.source === 'edited' ? 'Edited' : p.source === 'ai-edited' ? 'Edited with AI' : '';
     return `
       <figure class="shot">
         <div class="shot-frame"><img data-photo="/api/media/${esc(v.id)}?variant=${i}-${kind}" alt="${esc(label)}"></div>
@@ -548,8 +548,14 @@ function photoStripHTML(v, busy) {
         </div>
         <div class="shot-tools">
           <button type="button" class="btn btn-quiet btn-small" data-action="photo-edit" data-index="${i}" ${disabled}>Edit</button>
+          <button type="button" class="btn btn-quiet btn-small" data-action="photo-ai" data-index="${i}" aria-expanded="${state.snap.aiOpen === i}" ${disabled}>AI edit</button>
           <button type="button" class="btn btn-quiet btn-small" data-action="photo-remove" data-index="${i}" ${disabled}>Remove</button>
         </div>
+        ${state.snap.aiOpen === i ? `
+        <form class="ai-edit" data-index="${i}" aria-label="AI edit for ${label}">
+          <input class="input" name="instruction" maxlength="300" placeholder="for example: plain light grey backdrop" aria-label="What to change in this photo" ${disabled}>
+          <button type="submit" class="btn btn-indigo btn-small" ${disabled}>Apply</button>
+        </form>` : ''}
       </figure>`;
   }).join('');
   const addButton = photos.length < MAX_PHOTOS_UI
@@ -557,7 +563,9 @@ function photoStripHTML(v, busy) {
     : '';
   const note = busy === 'studio'
     ? '<p class="mode-note" role="status"><span class="spinner" aria-hidden="true"></span> Making the white-background photo. This takes a few seconds.</p>'
-    : `<p class="mode-note" role="status">${esc(photoNote(photos))}</p>`;
+    : busy === 'ai'
+      ? '<p class="mode-note" role="status"><span class="spinner" aria-hidden="true"></span> Editing the photo with AI. This can take 20 to 30 seconds.</p>'
+      : `<p class="mode-note" role="status">${esc(photoNote(photos))}</p>`;
   return `
     <section class="photo-strip" aria-label="Photos on the listing">${cards}${addButton}</section>
     ${note}
@@ -885,6 +893,27 @@ async function setPhotoMode(index, mode) {
       const method = view.draft.photos[index]?.method;
       toast(method === 'muse-image' ? 'White background made with Muse Image.' : 'White background made on this device.');
     }
+  } catch (err) {
+    toast(err.message, 'bad');
+  } finally {
+    state.snap.busy = null;
+    await render();
+  }
+}
+
+// Asks the server to edit one photo with the seller's words. The result replaces that photo.
+async function applyAiEdit(form) {
+  const index = Number(form.dataset.index);
+  const instruction = form.elements.instruction.value.trim();
+  if (!instruction) return toast('Type what to change in the photo first.', 'bad');
+  captureEdits();
+  state.snap.busy = 'ai';
+  await render();
+  try {
+    state.snap.view = await api(`/api/listings/drafts/${state.snap.view.id}/photos/${index}/ai-edit`, { method: 'POST', body: { instruction } });
+    state.snap.aiOpen = null;
+    state.photos.clear();
+    toast('Photo edited with AI.');
   } catch (err) {
     toast(err.message, 'bad');
   } finally {
@@ -1432,8 +1461,8 @@ async function renderSettings() {
 
   return `
     <header class="page-head">
-      <h1>Settings</h1>
-      <p>Your shop, your connections and your access token.</p>
+      <h1>Connect marketplaces</h1>
+      <p>Your shop, your marketplace connections and your access token.</p>
     </header>
     <div class="orders-grid">
       <section class="stack">
@@ -1559,6 +1588,12 @@ const actions = {
   'snap-again': () => { state.snap = { phase: 'empty' }; return render(); },
   'photo-mode': (el) => setPhotoMode(Number(el.dataset.index), el.dataset.mode),
   'photo-edit': (el) => openEditor(Number(el.dataset.index)),
+  'photo-ai': (el) => {
+    captureEdits();
+    const index = Number(el.dataset.index);
+    state.snap.aiOpen = state.snap.aiOpen === index ? null : index;
+    return render();
+  },
   'photo-remove': (el) => removePhotoAt(Number(el.dataset.index)),
   'photo-add': () => $('#file').click(),
   'editor-close': () => closeEditor(),
@@ -1838,6 +1873,11 @@ document.addEventListener('keydown', (e) => {
 });
 
 document.addEventListener('submit', (e) => {
+  if (e.target.matches('.ai-edit')) {
+    e.preventDefault();
+    applyAiEdit(e.target);
+    return;
+  }
   if (e.target.id !== 'chat-form') return;
   e.preventDefault();
   const input = $('#chat-text');

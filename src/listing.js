@@ -2,7 +2,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { createProduct, InventoryError } from './inventory.js';
 import { CATEGORIES } from './marketplaces.js';
 import { metaEnabled, parseAnswer } from './meta.js';
-import { makeStudioImage } from './studio.js';
+import { editPhoto, makeStudioImage } from './studio.js';
 import { readImage, signMedia, storeImage } from './uploads.js';
 
 const QUESTIONS = {
@@ -386,6 +386,25 @@ export async function replacePhoto(db, tenantId, id, index, { buffer, mime }) {
   const original = await storeImage(db, buffer, mime);
   Object.assign(photo, { original, enhanced: null, method: null, mode: 'ORIGINAL', source: 'edited' });
   if (wasStudio) await applyPhotoMode(db, draft, index, 'STUDIO');
+  await saveDraft(db, tenantId, id, draft);
+  return draftView(id, draft);
+}
+
+// Edits a photo with the seller's words, through Muse Image. The edited photo replaces the original.
+export async function aiEditPhoto(db, tenantId, id, index, instruction) {
+  const text = String(instruction ?? '').trim();
+  if (!text) throw new InventoryError('BAD_INPUT', 'Say what to change in the photo');
+  if (text.length > 300) throw new InventoryError('BAD_INPUT', 'Keep the instruction under 300 characters');
+  if (!metaEnabled()) throw new InventoryError('AI_OFF', 'AI photo editing needs the Meta key on the server.');
+  const row = await loadRow(db, tenantId, id);
+  const draft = loadDraft(row);
+  const photo = draft.photos[index];
+  if (!photo) throw new InventoryError('NOT_FOUND', `No photo ${index}`);
+  const original = await readImage(db, photo.original);
+  if (!original) throw new InventoryError('NOT_FOUND', 'The original photo is missing');
+  const edited = await editPhoto(original, text);
+  const name = await storeImage(db, edited, 'image/jpeg');
+  Object.assign(photo, { original: name, enhanced: null, method: null, mode: 'ORIGINAL', source: 'ai-edited' });
   await saveDraft(db, tenantId, id, draft);
   return draftView(id, draft);
 }

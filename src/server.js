@@ -26,6 +26,7 @@ import {
   mediaName,
   publicMedia,
   publishDraft,
+  aiEditPhoto,
   removePhoto,
   replacePhoto,
   updateDraft,
@@ -190,6 +191,11 @@ async function apiRoute(db, tenantId, req, res, url) {
       const product = await publishDraft(db, tenantId, id);
       return json(res, 201, { ...product, shopify: await listOnShopify(db, tenantId, product) });
     }
+  }
+  const aiEdit = pathname.match(/^\/api\/listings\/drafts\/([\w-]+)\/photos\/(\d+)\/ai-edit$/);
+  if (method === 'POST' && aiEdit) {
+    const body = await readJson(req);
+    return json(res, 200, await aiEditPhoto(db, tenantId, aiEdit[1], Number(aiEdit[2]), body.instruction));
   }
   const photoRoute = pathname.match(/^\/api\/listings\/drafts\/([\w-]+)\/photos(?:\/(\d+))?$/);
   if (photoRoute) {
