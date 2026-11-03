@@ -592,6 +592,86 @@ a:hover { color: var(--orange-ink); }
 .thumb { width: 100%; aspect-ratio: 4 / 3; object-fit: contain; display: block; border-radius: 12px; background: var(--surface-2); }
 .thumb-empty { display: grid; place-items: center; font: 800 2rem var(--font); color: var(--ink-3); }
 
+/* ---------- Glass ---------- */
+
+:root {
+  --glass: rgba(255, 255, 255, 0.5);
+  --glass-strong: rgba(255, 255, 255, 0.72);
+  --glass-line: rgba(255, 255, 255, 0.75);
+  --glass-shadow: 0 10px 36px rgba(23, 25, 28, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  --glass-blur: blur(18px) saturate(160%);
+}
+
+body {
+  background:
+    radial-gradient(900px 620px at 6% -8%, rgba(255, 75, 50, 0.2), transparent 62%),
+    radial-gradient(820px 720px at 100% 0%, rgba(146, 157, 167, 0.38), transparent 62%),
+    radial-gradient(760px 620px at 62% 112%, rgba(255, 106, 85, 0.16), transparent 60%),
+    linear-gradient(160deg, #E8EDF1 0%, #F3F4F5 48%, #E3E8ED 100%);
+  background-attachment: fixed;
+}
+
+.card, .stat, .feed-item, .sku-tag, .conn-card, .listing, .publish-bar, .empty, .onboard-card, .readiness details {
+  background: var(--glass);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-line);
+  box-shadow: var(--glass-shadow);
+}
+
+.stat, .sku-tag, .listing { transition: transform 0.18s ease, box-shadow 0.18s ease; }
+.sku-tag:hover, .stat:hover { transform: translateY(-2px); box-shadow: 0 16px 40px rgba(23, 25, 28, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.8); }
+
+.rail {
+  background: linear-gradient(180deg, rgba(23, 25, 28, 0.82), rgba(23, 25, 28, 0.66));
+  backdrop-filter: blur(22px) saturate(140%);
+  -webkit-backdrop-filter: blur(22px) saturate(140%);
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+}
+.rail-foot { background: rgba(255, 255, 255, 0.09); border: 1px solid rgba(255, 255, 255, 0.1); }
+
+.topbar {
+  background: rgba(255, 255, 255, 0.55);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border-bottom: 1px solid var(--glass-line);
+}
+
+.btn-quiet {
+  background: var(--glass-strong);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-color: rgba(255, 255, 255, 0.8);
+}
+.btn-quiet:hover:not(:disabled) { background: rgba(255, 255, 255, 0.9); }
+
+.chip {
+  background: var(--glass-strong);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-color: rgba(255, 255, 255, 0.8);
+}
+.chip[aria-pressed="true"] { background: rgba(23, 25, 28, 0.86); }
+
+.input, .textarea, .select {
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-color: rgba(255, 255, 255, 0.85);
+}
+.input:focus, .textarea:focus, .select:focus { background: rgba(255, 255, 255, 0.92); }
+
+.dropzone {
+  background: rgba(255, 255, 255, 0.4);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border-color: rgba(146, 157, 167, 0.8);
+}
+
+.bubble.bot { background: var(--glass-strong); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+.chat-compose { background: var(--glass-strong); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
+.demo-box { background: rgba(255, 75, 50, 0.1); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+
 /* ---------- Motion ---------- */
 
 @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
