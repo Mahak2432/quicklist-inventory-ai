@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { openDb } from './db.js';
 import { makeAdapters } from './channels.js';
 import { CONNECTORS } from './connectors.js';
-import { listConnections, listDemoPushes, listOnShopify, removeConnection, retestConnection, saveConnection } from './connections.js';
+import { listConnections, listDemoPushes, listOnShopify, removeConnection, retestConnection, saveConnection, syncShopifyPhotos } from './connections.js';
 import { vaultReady } from './vault.js';
 import { bearerFrom, createAccount, createTenant, getTenant, issueToken, login, revokeToken, tenantForToken } from './auth.js';
 import {
@@ -163,6 +163,7 @@ async function apiRoute(db, tenantId, req, res, url) {
     }
   }
   if (method === 'GET' && pathname === '/api/demo/pushes') return json(res, 200, await listDemoPushes(db, tenantId));
+  if (method === 'POST' && pathname === '/api/shopify/photos') return json(res, 200, await syncShopifyPhotos(db, tenantId));
 
   if (method === 'POST' && pathname === '/api/auth/logout') {
     await revokeToken(db, bearerFrom(req));

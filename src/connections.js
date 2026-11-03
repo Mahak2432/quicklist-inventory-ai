@@ -1,14 +1,17 @@
 import {
+  addShopifyPhotos,
   CONNECTORS,
   createShopifyProduct,
   matchListings,
   pushStock as pushOne,
   setShopifyStock,
+  shopifyPhotoCount,
   shopifyProductBody,
+  shopifyProductIdForVariant,
   testConnection,
   validateFields,
 } from './connectors.js';
-import { InventoryError, linkSkusToChannel, SKU_LINKED } from './inventory.js';
+import { InventoryError, linkSkusToChannel, listProducts, SKU_LINKED } from './inventory.js';
 import { decrypt, encrypt, vaultReady } from './vault.js';
 
 // Stores each seller's connection keys. Secret fields are encrypted as one
@@ -142,6 +145,46 @@ export async function listOnShopify(db, tenantId, product) {
   return { ok: true, detail: `Listed ${count} on Shopify.` };
 }
 
+// Sends the photos of each listed product to its Shopify product, when that product has none yet.
+// Shopify fetches the photos itself, so PUBLIC_BASE_URL must point at this server.
+export async function syncShopifyPhotos(db, tenantId) {
+  const row = await db.prepare("SELECT status FROM connections WHERE tenant_id = ? AND platform = 'SHOPIFY'").get(tenantId);
+  if (row?.status !== 'CONNECTED') throw new InventoryError('NOT_CONNECTED', 'Connect Shopify first');
+  const base = (process.env.PUBLIC_BASE_URL || '').replace(/\/$/, '');
+  if (!base) throw new InventoryError('NO_PUBLIC_URL', 'Set PUBLIC_BASE_URL on the server so Shopify can fetch the photos');
+  const fields = await loadFields(db, tenantId, 'SHOPIFY');
+  if (!fields) throw new InventoryError('NOT_CONNECTED', 'Connect Shopify first');
+
+  const results = [];
+  for (const product of await listProducts(db, tenantId)) {
+    const urls = product.media_urls.map((url) => `${base}${url}`);
+    if (!urls.length) {
+      results.push({ master_sku: product.master_sku, status: 'NO_PHOTOS', detail: 'No photos on this product' });
+      continue;
+    }
+    const link = await db.prepare(`SELECT m.platform_listing_id FROM channel_mappings m
+                JOIN variants v ON v.tenant_id = m.tenant_id AND v.sku = m.sku
+                WHERE m.tenant_id = ? AND m.platform = 'SHOPIFY' AND v.product_id = ? LIMIT 1`).get(tenantId, product.id);
+    if (!link) {
+      results.push({ master_sku: product.master_sku, status: 'NOT_LISTED', detail: 'Not listed on Shopify yet' });
+      continue;
+    }
+    try {
+      const shopifyProductId = await shopifyProductIdForVariant(fields, link.platform_listing_id);
+      const existing = await shopifyPhotoCount(fields, shopifyProductId);
+      if (existing) {
+        results.push({ master_sku: product.master_sku, status: 'HAS_PHOTOS', detail: `Shopify already has ${existing} photo${existing === 1 ? '' : 's'}` });
+        continue;
+      }
+      await addShopifyPhotos(fields, shopifyProductId, urls);
+      results.push({ master_sku: product.master_sku, status: 'ADDED', detail: `Added ${urls.length} photo${urls.length === 1 ? '' : 's'}` });
+    } catch (err) {
+      results.push({ master_sku: product.master_sku, status: 'ERROR', detail: err.message });
+    }
+  }
+  return results;
+}
+
 export async function listConnections(db, tenantId) {
   const out = [];
   for (const platform of Object.keys(CONNECTORS)) out.push(await listOne(db, tenantId, platform));
@@ -157,6 +200,13 @@ export async function pushForTenant(db, tenantId, platform, args) {
   const fields = await loadFields(db, tenantId, platform);
   if (!fields) return { ok: false, skipped: true, error: `Connect ${CONNECTORS[platform].label} to send stock` };
   return pushOne(platform, fields, args, { db, tenantId });
+}
+
+// Postgres returns timestamps like 2026-11-03 10:20:30.123456+00. The browser needs ISO text.
+function isoTime(value) {
+  if (!value) return null;
+  const d = new Date(String(value).replace(' ', 'T').replace(/(\.\d{3})\d+/, '$1').replace(/([+-]\d{2})$/, '$1:00'));
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }
 
 function publicValues(def, fields) {
@@ -187,7 +237,7 @@ async function listOne(db, tenantId, platform) {
     })),
     status: row?.status ?? 'NOT_CONNECTED',
     detail: row?.detail ?? '',
-    tested_at: row?.tested_at ?? null,
+    tested_at: isoTime(row?.tested_at),
     values: row ? JSON.parse(row.public_json) : {},
   };
 }

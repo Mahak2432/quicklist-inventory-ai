@@ -251,6 +251,32 @@ export function setShopifyStock(f, inventoryItemId, qty) {
   });
 }
 
+// Reads the product that a variant belongs to, so photos can be added to that product.
+export async function shopifyProductIdForVariant(f, variantId) {
+  const res = await shopifyAdmin(f, `/variants/${variantId}.json`);
+  if (!res.ok) throw new Error(rejected('Shopify', res));
+  return (await res.json()).variant.product_id;
+}
+
+// Returns how many photos a Shopify product already has.
+export async function shopifyPhotoCount(f, productId) {
+  const res = await shopifyAdmin(f, `/products/${productId}.json?fields=id,images`);
+  if (!res.ok) throw new Error(rejected('Shopify', res));
+  return (await res.json()).product.images.length;
+}
+
+// Adds each photo link to the Shopify product, in order.
+export async function addShopifyPhotos(f, productId, urls) {
+  for (const src of urls) {
+    const res = await shopifyAdmin(f, `/products/${productId}/images.json`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image: { src } }),
+    });
+    if (!res.ok) throw new Error(rejected('Shopify', res));
+  }
+}
+
 function signedPost(url, secret, payload) {
   const body = JSON.stringify(payload);
   const signature = createHmac('sha256', secret).update(body).digest('hex');

@@ -1503,7 +1503,7 @@ function connectorCardHTML(c, vaultReady) {
     NOT_CONNECTED: ['pill-idle', 'Not connected'],
   }[c.status];
   const open = state.connOpen === c.platform;
-  const checked = c.tested_at ? `Checked ${new Date(c.tested_at.replace(' ', 'T') + 'Z').toLocaleString('en-IN')}` : '';
+  const checked = c.tested_at ? `Checked ${new Date(c.tested_at).toLocaleString('en-IN')}` : '';
   const primary = c.status !== 'CONNECTED';
   const openLabel = open ? 'Close' : c.status === 'NOT_CONNECTED' ? 'Connect' : 'Edit keys';
   return `
@@ -1516,6 +1516,7 @@ function connectorCardHTML(c, vaultReady) {
         <button type="button" class="btn ${primary ? 'btn-primary' : 'btn-quiet'} btn-small" data-action="conn-open" data-platform="${c.platform}" aria-expanded="${open}" ${vaultReady ? '' : 'disabled'}>${openLabel}</button>
         ${c.status !== 'NOT_CONNECTED' ? `
           <button type="button" class="btn btn-quiet btn-small" data-action="conn-test" data-platform="${c.platform}">Test again</button>
+          ${c.platform === 'SHOPIFY' ? `<button type="button" class="btn btn-quiet btn-small" data-action="shopify-photos">Send photos to Shopify</button>` : ''}
           <button type="button" class="btn btn-quiet btn-small" data-action="conn-remove" data-platform="${c.platform}">Disconnect</button>` : ''}
       </div>
       ${open ? connectorFormHTML(c) : ''}
@@ -1726,6 +1727,15 @@ const actions = {
   'conn-test': async (el) => {
     const c = await api(`/api/connections/${el.dataset.platform}/test`, { method: 'POST' });
     toast(c.detail, c.status === 'CONNECTED' ? 'ok' : 'bad');
+    return render();
+  },
+  'shopify-photos': async () => {
+    const results = await api('/api/shopify/photos', { method: 'POST' });
+    const added = results.filter((r) => r.status === 'ADDED').length;
+    const failed = results.filter((r) => r.status === 'ERROR');
+    if (failed.length) toast(`Photos added to ${plural(added, 'product')}. ${failed.length} failed: ${failed[0].detail}`, 'bad');
+    else if (!added) toast('Nothing new to send. Every listed product already has photos on Shopify.');
+    else toast(`Photos added to ${plural(added, 'product')} on Shopify.`);
     return render();
   },
   'conn-remove': async (el) => {

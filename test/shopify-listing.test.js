@@ -12,7 +12,7 @@ delete process.env.META_API_KEY;
 const { openDb } = await import('../src/db.js');
 const { createTenant } = await import('../src/auth.js');
 const { createProduct } = await import('../src/inventory.js');
-const { listOnShopify } = await import('../src/connections.js');
+const { listOnShopify, syncShopifyPhotos } = await import('../src/connections.js');
 const { shopifyProductBody } = await import('../src/connectors.js');
 const { encrypt } = await import('../src/vault.js');
 
@@ -133,6 +133,70 @@ test('a store without the write_products scope keeps the product and says why', 
   } finally {
     globalThis.fetch = realFetch;
   }
+});
+
+// A product that is already listed on Shopify, linked through one of its variants.
+async function listedProduct(db, tenantId) {
+  await connectShopify(db, tenantId, 'photos-store.myshopify.com');
+  await makeProduct(db, tenantId);
+  await db.prepare("INSERT INTO channel_mappings (tenant_id, sku, platform, platform_listing_id) VALUES (?, 'SHOE-NAV-LIST1-UK7', 'SHOPIFY', '901')")
+    .run(tenantId);
+}
+
+// Routes the Shopify calls the photo sync makes. `images` is what the Shopify product already has.
+function photoStub(images, posted) {
+  return async (url, init) => {
+    const href = String(url);
+    if (href.endsWith('/admin/oauth/access_token')) return json({ access_token: 'shpat_photos', expires_in: 86399 });
+    if (href.includes('/variants/901.json')) return json({ variant: { id: 901, product_id: 9001 } });
+    if (href.includes('/products/9001.json')) return json({ product: { id: 9001, images } });
+    if (href.endsWith('/products/9001/images.json')) {
+      posted.push(JSON.parse(init.body).image.src);
+      return json({ image: {} }, 201);
+    }
+    return new Response('unexpected', { status: 500 });
+  };
+}
+
+test('a listed product with no photos on Shopify gets its photos from the app', async () => {
+  process.env.PUBLIC_BASE_URL = 'https://shop.example.test';
+  const { db, tenantId } = await freshShop();
+  await listedProduct(db, tenantId);
+  const realFetch = globalThis.fetch;
+  const posted = [];
+  globalThis.fetch = photoStub([], posted);
+  try {
+    const results = await syncShopifyPhotos(db, tenantId);
+    assert.deepEqual(results.map((r) => r.status), ['ADDED']);
+    assert.deepEqual(posted, ['https://shop.example.test/m/abc/original?sig=x']);
+  } finally {
+    globalThis.fetch = realFetch;
+    delete process.env.PUBLIC_BASE_URL;
+  }
+});
+
+test('a Shopify product that already has photos is left alone', async () => {
+  process.env.PUBLIC_BASE_URL = 'https://shop.example.test';
+  const { db, tenantId } = await freshShop();
+  await listedProduct(db, tenantId);
+  const realFetch = globalThis.fetch;
+  const posted = [];
+  globalThis.fetch = photoStub([{ id: 1 }], posted);
+  try {
+    const results = await syncShopifyPhotos(db, tenantId);
+    assert.deepEqual(results.map((r) => r.status), ['HAS_PHOTOS']);
+    assert.deepEqual(posted, []);
+  } finally {
+    globalThis.fetch = realFetch;
+    delete process.env.PUBLIC_BASE_URL;
+  }
+});
+
+test('photos are not sent until PUBLIC_BASE_URL is set on the server', async () => {
+  delete process.env.PUBLIC_BASE_URL;
+  const { db, tenantId } = await freshShop();
+  await listedProduct(db, tenantId);
+  await assert.rejects(syncShopifyPhotos(db, tenantId), /PUBLIC_BASE_URL/);
 });
 
 test('nothing is sent to Shopify when the store is not connected', async () => {
