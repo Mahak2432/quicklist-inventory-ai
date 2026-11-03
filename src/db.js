@@ -140,6 +140,13 @@ CREATE TABLE IF NOT EXISTS demo_pushes (
   qty INTEGER NOT NULL,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS image_files (
+  name TEXT PRIMARY KEY,
+  mime TEXT NOT NULL,
+  data BYTEA NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 `;
 
 // The code writes `?` placeholders. Postgres wants $1, $2, ... Text inside quotes is left alone.

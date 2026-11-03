@@ -141,8 +141,15 @@ export async function listOnShopify(db, tenantId, product) {
   }
 
   const count = `${created.length} variant${created.length === 1 ? '' : 's'}`;
-  if (failed) return { ok: false, detail: `Listed ${count} on Shopify, but ${failed} stock level${failed === 1 ? ' was' : 's were'} not set.` };
-  return { ok: true, detail: `Listed ${count} on Shopify.` };
+  const photoCount = product.media_urls.length;
+  const photoNote = !photoCount ? ' No photos on this product.'
+    : base ? ` With ${photoCount} photo${photoCount === 1 ? '' : 's'}.`
+      : ' Photos were not sent, because PUBLIC_BASE_URL is not set on the server.';
+  if (failed || (!base && photoCount)) {
+    const stockNote = failed ? `, but ${failed} stock level${failed === 1 ? ' was' : 's were'} not set` : '';
+    return { ok: false, detail: `Listed ${count} on Shopify${stockNote}.${photoNote}` };
+  }
+  return { ok: true, detail: `Listed ${count} on Shopify.${photoNote}` };
 }
 
 // Sends the photos of each listed product to its Shopify product, when that product has none yet.

@@ -95,7 +95,7 @@ test('publishing lists the product on a connected Shopify store and records each
   try {
     const result = await listOnShopify(db, tenantId, made);
     assert.equal(result.ok, true);
-    assert.equal(result.detail, 'Listed 2 variants on Shopify.');
+    assert.equal(result.detail, 'Listed 2 variants on Shopify. With 1 photo.');
 
     const create = calls.find((c) => c.href.endsWith('/products.json'));
     assert.equal(create.method, 'POST');

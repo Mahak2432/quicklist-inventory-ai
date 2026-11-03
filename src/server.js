@@ -202,7 +202,7 @@ async function apiRoute(db, tenantId, req, res, url) {
   }
   const media = pathname.match(/^\/api\/media\/([\w-]+)$/);
   if (method === 'GET' && media) {
-    const img = readImage(await mediaName(db, tenantId, media[1], searchParams.get('variant') ?? 'auto'));
+    const img = await readImage(db, await mediaName(db, tenantId, media[1], searchParams.get('variant') ?? 'auto'));
     if (!img) throw new HttpError(404, 'No image for this draft');
     return raw(res, 200, img.buffer, img.mime);
   }
@@ -345,7 +345,7 @@ async function createDraftRoute(db, tenantId, req, res, hint) {
     analysisError = err.message;
     analysis = { title: hint || 'Untitled product', category: 'GENERIC' };
   }
-  const view = await createDraft(db, tenantId, analysis, storeImage(photo.buffer, photo.mime));
+  const view = await createDraft(db, tenantId, analysis, await storeImage(db, photo.buffer, photo.mime));
 
   // A note such as "put on a mannequin" asks for a new picture. It becomes the
   // main image, and the seller's own photo stays beside it.
@@ -395,7 +395,7 @@ async function processWhatsApp(db, msg) {
 // guessing links to other sellers' photos.
 async function publicImageRoute(db, res, id, variant, url) {
   if (!verifyMedia(id, variant, url.searchParams.get('sig'))) throw new HttpError(403, 'Bad or missing signature');
-  const img = readImage(await publicMedia(db, id, variant));
+  const img = await readImage(db, await publicMedia(db, id, variant));
   if (!img) throw new HttpError(404, 'No image for this draft');
   return raw(res, 200, img.buffer, img.mime, { 'Cache-Control': 'public, max-age=86400' });
 }

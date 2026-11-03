@@ -1,10 +1,7 @@
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { basename, extname, join, resolve } from 'node:path';
+import { basename } from 'node:path';
 
-const UPLOAD_DIR = resolve(process.env.UPLOAD_DIR || './data/uploads');
 const EXT = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp' };
-const MIME_BY_EXT = Object.fromEntries(Object.entries(EXT).map(([mime, ext]) => [ext, mime]));
 
 export const ALLOWED_IMAGE_TYPES = Object.keys(EXT);
 
@@ -12,21 +9,22 @@ export const ALLOWED_IMAGE_TYPES = Object.keys(EXT);
 // carry an HMAC. Without a secret, a random one is used and links break on restart.
 const MEDIA_SECRET = process.env.MEDIA_SECRET || randomBytes(32).toString('hex');
 
-export function storeImage(buffer, mime) {
+// Photos are stored in the database, not on the server's disk. Hosts such as Render
+// wipe the disk on every deploy, which left product links pointing at nothing.
+export async function storeImage(db, buffer, mime) {
   const ext = EXT[mime];
   if (!ext) throw new Error(`Unsupported image type ${mime}`);
-  mkdirSync(UPLOAD_DIR, { recursive: true });
   const name = `${randomUUID()}${ext}`;
-  writeFileSync(join(UPLOAD_DIR, name), buffer);
+  await db.prepare('INSERT INTO image_files (name, mime, data) VALUES (?, ?, ?)').run(name, mime, buffer);
   return name;
 }
 
-// Only bare file names are accepted, so a crafted value can't escape the upload folder.
-export function readImage(name) {
+// Only bare file names are looked up, so a crafted value can't match another photo.
+export async function readImage(db, name) {
   if (!name || name !== basename(name)) return null;
-  const path = join(UPLOAD_DIR, name);
-  if (!existsSync(path)) return null;
-  return { buffer: readFileSync(path), mime: MIME_BY_EXT[extname(name)] ?? 'application/octet-stream' };
+  const row = await db.prepare('SELECT mime, data FROM image_files WHERE name = ?').get(name);
+  if (!row) return null;
+  return { buffer: Buffer.from(row.data), mime: row.mime };
 }
 
 export function signMedia(draftId, variant) {

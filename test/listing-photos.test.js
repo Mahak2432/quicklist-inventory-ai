@@ -13,7 +13,7 @@ delete process.env.META_API_KEY;
 const { openDb } = await import('../src/db.js');
 const { createTenant } = await import('../src/auth.js');
 const { addPhoto, createDraft, getDraft, publicMedia, publishDraft, removePhoto, replacePhoto, updateDraft, wantsNotePhoto } = await import('../src/listing.js');
-const { storeImage, verifyMedia } = await import('../src/uploads.js');
+const { readImage, storeImage, verifyMedia } = await import('../src/uploads.js');
 
 const blankPng = () => sharp({ create: { width: 200, height: 200, channels: 3, background: '#f2f2f2' } }).png().toBuffer();
 
@@ -25,6 +25,17 @@ const freshShop = async () => {
   return { db, tenantId };
 };
 
+test('a stored photo is read back from the database, and an unknown name finds nothing', async () => {
+  const { db } = await freshShop();
+  const png = await blankPng();
+  const name = await storeImage(db, png, 'image/png');
+  const back = await readImage(db, name);
+  assert.equal(back.mime, 'image/png');
+  assert.deepEqual(Buffer.from(back.buffer), png);
+  assert.equal(await readImage(db, 'missing-photo.png'), null);
+  assert.equal(await readImage(db, '../secret.png'), null);
+});
+
 test('a note asking for a mannequin or model shot is recognised, and a plain description is not', () => {
   assert.equal(wantsNotePhoto('put on manequene'), true);
   assert.equal(wantsNotePhoto('Put it on a mannequin'), true);
@@ -35,7 +46,7 @@ test('a note asking for a mannequin or model shot is recognised, and a plain des
 test('a listing takes several photos, each with its own white-background choice, and publishes one signed link per photo', async () => {
   const { db, tenantId } = await freshShop();
   const png = await blankPng();
-  const first = await createDraft(db, tenantId, { title: 'Blue kurta', category: 'GENERIC', color: 'Blue' }, storeImage(png, 'image/png'));
+  const first = await createDraft(db, tenantId, { title: 'Blue kurta', category: 'GENERIC', color: 'Blue' }, await storeImage(db, png, 'image/png'));
   await addPhoto(db, tenantId, first.id, { buffer: png, mime: 'image/png' });
   const withNote = await addPhoto(db, tenantId, first.id, { buffer: png, mime: 'image/png', source: 'generated', front: true });
   assert.deepEqual(withNote.draft.photos.map((p) => p.source), ['generated', 'upload', 'upload']);
@@ -62,7 +73,7 @@ test('a listing takes several photos, each with its own white-background choice,
 test('an edited photo replaces its original, and a removed photo leaves the listing', async () => {
   const { db, tenantId } = await freshShop();
   const png = await blankPng();
-  const draft = await createDraft(db, tenantId, { title: 'Grey hoodie', category: 'GENERIC' }, storeImage(png, 'image/png'));
+  const draft = await createDraft(db, tenantId, { title: 'Grey hoodie', category: 'GENERIC' }, await storeImage(db, png, 'image/png'));
   await addPhoto(db, tenantId, draft.id, { buffer: png, mime: 'image/png' });
 
   const before = (await getDraft(db, tenantId, draft.id)).draft.photos[1].original;
@@ -78,7 +89,7 @@ test('an edited photo replaces its original, and a removed photo leaves the list
 test('drafts saved with one photo before multi-photo listings still open and publish', async () => {
   const { db, tenantId } = await freshShop();
   const png = await blankPng();
-  const legacy = await createDraft(db, tenantId, { title: 'Old listing', category: 'GENERIC' }, storeImage(png, 'image/png'));
+  const legacy = await createDraft(db, tenantId, { title: 'Old listing', category: 'GENERIC' }, await storeImage(db, png, 'image/png'));
   const row = await db.prepare('SELECT draft_json FROM listing_drafts WHERE id = ?').get(legacy.id);
   const saved = JSON.parse(row.draft_json);
   delete saved.photos;

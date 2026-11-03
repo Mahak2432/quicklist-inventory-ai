@@ -510,6 +510,7 @@ function publishedHTML(s) {
       <span class="pill pill-ok">Live in your stock</span>
       <h2 id="done-h">${esc(p.title)}</h2>
       <p class="muted">Listed as ${esc(p.master_sku)} with ${plural(p.variants.length, 'SKU')}.</p>
+      ${p.shopify ? `<p class="${p.shopify.ok ? 'muted' : 'conn-detail'}" role="status">Shopify: ${esc(p.shopify.detail)}</p>` : ''}
       <ul class="sku-list">
         ${p.variants.map((v) => `<li><span>${esc(v.sku)}</span><span>${v.stock_qty} in stock · ${inr(v.selling_price)}</span></li>`).join('')}
       </ul>
@@ -1652,7 +1653,8 @@ const actions = {
       if (saved.missing.length) return toast(`Still needed: ${missingNames(saved.missing)}.`, 'bad');
       const product = await api(`/api/listings/drafts/${saved.id}/publish`, { method: 'POST' });
       state.snap = { phase: 'published', product };
-      toast(`Listed as ${product.master_sku}. Stock is live.`);
+      const shopify = product.shopify;
+      toast(`Listed as ${product.master_sku}. Stock is live.${shopify ? ` Shopify: ${shopify.detail}` : ''}`, shopify && !shopify.ok ? 'bad' : 'ok');
     } finally {
       state.snap.busy = null;
       await render();

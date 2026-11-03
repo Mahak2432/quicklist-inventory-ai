@@ -142,7 +142,7 @@ async function lowStockText(db, tenantId) {
 async function startDraftFromPhoto(db, msg, tenantId) {
   const media = msg.media ?? (await downloadMedia(msg.mediaId));
   const analysis = await analyzePhoto(media, msg.caption);
-  const imagePath = storeImage(media.buffer, media.mime);
+  const imagePath = await storeImage(db, media.buffer, media.mime);
   const view = await createDraft(db, tenantId, analysis, imagePath);
   await db.prepare('UPDATE phone_links SET pending_draft_id = ? WHERE phone = ?').run(view.id, msg.from);
   const head = `Detected: ${view.draft.title} (${view.draft.category}).`;

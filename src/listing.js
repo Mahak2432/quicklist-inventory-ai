@@ -163,8 +163,8 @@ export async function updateDraft(db, tenantId, id, input) {
 
   draft.answers = mergeAnswers(draft.answers, parsed, draft.category);
   if (input.fields) applyFields(draft, input.fields);
-  if (input.image_mode) await applyModeToAll(draft, input.image_mode);
-  if (input.photo_mode) await applyPhotoMode(draft, Number(input.photo_mode.index), input.photo_mode.mode);
+  if (input.image_mode) await applyModeToAll(db, draft, input.image_mode);
+  if (input.photo_mode) await applyPhotoMode(db, draft, Number(input.photo_mode.index), input.photo_mode.mode);
   await saveDraft(db, tenantId, id, draft);
   return { ...draftView(id, draft), parser, parser_error: parserError };
 }
@@ -237,24 +237,24 @@ function chosenKind(photo) {
   return photo.mode === 'STUDIO' && photo.enhanced ? 'enhanced' : 'original';
 }
 
-async function applyPhotoMode(draft, index, mode) {
+async function applyPhotoMode(db, draft, index, mode) {
   if (mode !== 'ORIGINAL' && mode !== 'STUDIO') {
     throw new InventoryError('BAD_IMAGE_MODE', 'image_mode must be ORIGINAL or STUDIO');
   }
   const photo = draft.photos[index];
   if (!photo) throw new InventoryError('NOT_FOUND', `No photo ${index}`);
   if (mode === 'STUDIO' && !photo.enhanced) {
-    const original = readImage(photo.original);
+    const original = await readImage(db, photo.original);
     if (!original) throw new InventoryError('NOT_FOUND', 'The original photo is missing');
     const studio = await makeStudioImage(original);
-    photo.enhanced = storeImage(studio.buffer, studio.mime);
+    photo.enhanced = await storeImage(db, studio.buffer, studio.mime);
     photo.method = studio.method;
   }
   photo.mode = mode;
 }
 
-async function applyModeToAll(draft, mode) {
-  for (let i = 0; i < draft.photos.length; i++) await applyPhotoMode(draft, i, mode);
+async function applyModeToAll(db, draft, mode) {
+  for (let i = 0; i < draft.photos.length; i++) await applyPhotoMode(db, draft, i, mode);
 }
 
 export async function publishDraft(db, tenantId, id) {
@@ -369,7 +369,7 @@ export async function addPhoto(db, tenantId, id, { buffer, mime, source = 'uploa
   if (draft.photos.length >= MAX_PHOTOS) {
     throw new InventoryError('TOO_MANY_PHOTOS', `A listing holds up to ${MAX_PHOTOS} photos`);
   }
-  const photo = newPhoto(storeImage(buffer, mime), source);
+  const photo = newPhoto(await storeImage(db, buffer, mime), source);
   if (front) draft.photos.unshift(photo);
   else draft.photos.push(photo);
   await saveDraft(db, tenantId, id, draft);
@@ -383,8 +383,9 @@ export async function replacePhoto(db, tenantId, id, index, { buffer, mime }) {
   const photo = draft.photos[index];
   if (!photo) throw new InventoryError('NOT_FOUND', `No photo ${index}`);
   const wasStudio = photo.mode === 'STUDIO';
-  Object.assign(photo, { original: storeImage(buffer, mime), enhanced: null, method: null, mode: 'ORIGINAL', source: 'edited' });
-  if (wasStudio) await applyPhotoMode(draft, index, 'STUDIO');
+  const original = await storeImage(db, buffer, mime);
+  Object.assign(photo, { original, enhanced: null, method: null, mode: 'ORIGINAL', source: 'edited' });
+  if (wasStudio) await applyPhotoMode(db, draft, index, 'STUDIO');
   await saveDraft(db, tenantId, id, draft);
   return draftView(id, draft);
 }
